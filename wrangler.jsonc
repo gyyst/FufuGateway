@@ -1,0 +1,76 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fufu-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-30",
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "none"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "ENVIRONMENT": "development",
+    "USAGE_MODE": "queue",
+    "LOG_LEVEL": "info"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "fufu-gateway",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "CONFIG_KV",
+      "id": "00000000000000000000000000000000"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RATE_LIMITER",
+        "class_name": "RateLimiterDO"
+      },
+      {
+        "name": "COORDINATION",
+        "class_name": "CoordinationDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RateLimiterDO", "CoordinationDO"]
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "USAGE_QUEUE",
+        "queue": "fufu-usage"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "fufu-usage",
+        "max_batch_size": 100,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+        "dead_letter_queue": "fufu-usage-dlq"
+      }
+    ]
+  },
+  "r2_buckets": [
+    {
+      "binding": "ARCHIVE_BUCKET",
+      "bucket_name": "fufu-gateway-archive"
+    }
+  ],
+  "triggers": {
+    "crons": ["17 3 * * *"]
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "providers": [
+    {
+      "name": "openai",
+      "type": "OPENAI_COMPATIBLE",
+      "protocol": "openai-chat",
+      "baseUrl": "https://api.openai.com/v1",
+      "priority": 100,
+      "weight": 1,
+      "maxRetries": 2,
+      "extraConfig": {
+        "breaker": {
+          "failureThreshold": 3,
+          "failureRate": 0.5,
+          "minSamples": 5,
+          "windowMs": 60000,
+          "openMs": 30000,
+          "halfOpenProbes": 2
+        }
+      }
+    },
+    {
+      "name": "anthropic",
+      "type": "ANTHROPIC",
+      "protocol": "anthropic",
+      "baseUrl": "https://api.anthropic.com",
+      "priority": 100,
+      "weight": 1,
+      "maxRetries": 2
+    },
+    {
+      "name": "google",
+      "type": "GOOGLE_GEMINI",
+      "protocol": "gemini",
+      "baseUrl": "https://generativelanguage.googleapis.com",
+      "priority": 100,
+      "weight": 1,
+      "maxRetries": 2
+    }
+  ],
+  "aliases": [
+    { "name": "coding-model", "target": "openai/gpt-5" },
+    { "name": "claude-best", "target": "anthropic/claude-sonnet-4-5" }
+  ],
+  "wildcards": [
+    {
+      "pattern": "claude-*",
+      "strategy": "fallback",
+      "priority": 100,
+      "targets": ["anthropic/claude-sonnet-4-5", "anthropic/claude-opus-4-1"]
+    },
+    {
+      "pattern": "gpt-*",
+      "strategy": "weighted_round_robin",
+      "priority": 100,
+      "targets": ["openai/gpt-5", "openai/gpt-5-mini"]
+    }
+  ]
+}

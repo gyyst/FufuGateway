@@ -1,0 +1,63 @@
+{
+  "combos": [
+    {
+      "name": "coding-combo",
+      "description": "编码任务：高端模型失败后降级到低成本模型",
+      "strategy": "fallback",
+      "timeoutMs": 120000,
+      "nodes": [
+        "openai/gpt-5",
+        "anthropic/claude-sonnet-4-5",
+        { "combo": "cheap-combo" }
+      ]
+    },
+    {
+      "name": "cheap-combo",
+      "description": "按权重分摊到低成本模型",
+      "strategy": "weighted_round_robin",
+      "nodes": [
+        { "model": "google/gemini-2.5-flash", "weight": 70 },
+        { "model": "openai/gpt-5-mini", "weight": 30 }
+      ]
+    },
+    {
+      "name": "fastest",
+      "description": "并行竞速，首个产生内容的模型胜出",
+      "strategy": "race",
+      "maxConcurrency": 3,
+      "timeoutMs": 60000,
+      "nodes": [
+        "openai/gpt-5",
+        "anthropic/claude-sonnet-4-5",
+        "google/gemini-2.5-pro"
+      ]
+    },
+    {
+      "name": "best-answer",
+      "description": "并行收集候选，由 Judge Model 生成最终答案（仅非流式）",
+      "strategy": "fusion",
+      "judgeModel": "openai/gpt-5-mini",
+      "maxConcurrency": 2,
+      "nodes": [
+        "openai/gpt-5",
+        "anthropic/claude-sonnet-4-5"
+      ]
+    },
+    {
+      "name": "main-combo",
+      "description": "会话粘性 + 多层嵌套",
+      "strategy": "fallback",
+      "sticky": {
+        "enabled": true,
+        "ttlSeconds": 600,
+        "mode": "round_robin",
+        "hashFirstUserMessage": false
+      },
+      "nodes": [
+        { "combo": "coding-combo" },
+        "cheap-combo",
+        "openai/gpt-5"
+      ]
+    }
+  ]
+}
