@@ -6,13 +6,28 @@
 - Queues 与 R2 为可选能力，取决于账号计划；不使用时可从 `wrangler.jsonc` 删除对应绑定。
 - Node.js 20+，Wrangler 4.x。
 
-## 2. 创建 Cloudflare 资源
+## 2. Cloudflare 资源
+
+### Workers Builds 自动创建（推荐）
+
+`wrangler.jsonc` 已省略 KV 的 `id` 与 D1 的 `database_id`。Workers Builds 首次部署时，Wrangler 会自动创建并绑定：
+
+| 资源 | 名称 |
+|------|------|
+| D1 | `fufu-gateway` |
+| KV | `fufugateway-config-kv` |
+| Queue | `fufu-usage` |
+| R2 | `fufu-gateway-archive` |
+
+首次构建使用的 Cloudflare 账号需要具备创建对应资源的权限。后续部署会继承现有 Worker 的绑定，不需要把资源 ID 写回仓库。
+
+### 手动创建（不使用 Workers Builds，或需要固定资源）
 
 ```bash
 npx wrangler login
 
 npx wrangler d1 create fufu-gateway
-npx wrangler kv namespace create CONFIG_KV
+npx wrangler kv namespace create fufugateway-config-kv
 
 # 可选：异步 Usage 与日志归档
 npx wrangler queues create fufu-usage
@@ -20,12 +35,7 @@ npx wrangler queues create fufu-usage-dlq
 npx wrangler r2 bucket create fufu-gateway-archive
 ```
 
-将输出写入 `wrangler.jsonc`：
-
-- D1 的 `database_id`
-- KV 的 `id`
-
-仓库中的 `00000000-0000-0000-0000-000000000000` 与 `00000000000000000000000000000000` 是本地开发占位值，**部署前必须替换**。
+将 D1 的 `database_id` 与 KV 的 `id` 填入 `wrangler.jsonc`。不填时由 Workers Builds 自动创建；本地 `wrangler dev` 使用本地模拟绑定，不需要远程 ID。
 
 ## 3. 配置 Secrets
 
@@ -49,9 +59,14 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 
 生产环境不要复用示例值，也不要提交 `.dev.vars`。
 
+使用 Workers Builds 时，也可以在 Cloudflare Dashboard 的 Worker → Settings → Variables and Secrets 中配置同名 Secret。部署本身不要求这些 Secret，但缺少 `ADMIN_TOKEN` 会导致管理端返回 503，缺少 `API_KEY_PEPPER` 或 `ENCRYPTION_KEY` 会导致 API Key 认证与上游账户加密失败。
+
 ## 4. 执行 D1 迁移
 
+Workers Builds 首次部署会自动创建 D1，但不会自动建表。首次部署成功后执行一次：
+
 ```bash
+npx wrangler login
 npm run db:migrate:remote
 ```
 
@@ -63,7 +78,32 @@ npm run db:migrate:local
 
 迁移文件按编号执行，包含建表、索引、默认设置与用户级限流字段。
 
+后续版本包含新迁移时，先执行迁移再部署：
+
+```bash
+npm run db:migrate:remote
+npm run deploy
+```
+
+如果使用 Workers Builds 持续部署，可在 D1 已创建后将 Deploy command 设置为：
+
+```bash
+npm run db:migrate:remote && npm run deploy
+```
+
+首次构建应保持默认的 `npx wrangler deploy`，先让 Wrangler 创建并绑定 D1/KV；首次构建成功后再切换到迁移优先命令。
+
 ## 5. 部署
+
+### Workers Builds
+
+首次部署保持 Dashboard 中的 Deploy command 为 `npx wrangler deploy`，让 Wrangler 自动创建 D1/KV 并完成部署。首次部署成功后：
+
+1. 配置 Secrets（第 3 节）。
+2. 执行一次远程迁移（第 4 节）。
+3. 如需每次构建自动迁移，将 Worker → Settings → Build → Deploy command 改为 `npm run db:migrate:remote && npm run deploy`。
+
+### 本地手动部署
 
 ```bash
 npm run typecheck
@@ -166,7 +206,10 @@ npm run deploy
 | 现象 | 排查 |
 |------|------|
 | `/admin` 返回 503 | 未配置 `ADMIN_TOKEN` |
-| 部署提示 D1/KV 不存在 | 占位 ID 未替换 |
+| 部署提示 KV namespace 不存在 | `wrangler.jsonc` 中仍有占位 `id`；删除 `id` 让 Workers Builds 自动创建，或填入真实 ID |
+| 部署提示 D1 database 不存在 | 填入真实 `database_id`，或删除该字段让 Workers Builds 自动创建 |
+| Worker name mismatch 警告 | `wrangler.jsonc` 的 `name` 与 Cloudflare 项目不一致；当前配置为 `fufugateway`，修改 Dashboard 项目名或同步配置 |
+| 首次部署后接口 500、表不存在 | D1 迁移未执行；运行 `npm run db:migrate:remote` |
 | 推理 401 | Key 被禁用/过期/轮换后旧 Key |
 | 推理 503 `PROVIDER_UNAVAILABLE` | 无可用账户、账户冷却或熔断打开 |
 | 模型路由 409 | 同名模型存在于多个 Provider，使用前缀或 Alias |
@@ -185,3 +228,5 @@ npm run deploy
 - 开启 Queues 与 R2 归档，并监控 DLQ。
 - 定期检查 `/admin/health/breakers` 与 5xx/429 比例。
 - 不要在日志中开启完整请求体记录；网关默认不记录正文。
+- 将 `vars.ENVIRONMENT` 改为 `"production"`，避免健康检查报告开发环境。
+- 首次部署后立即配置 Secrets 并执行 D1 迁移。

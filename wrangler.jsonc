@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "fufu-gateway",
+  "name": "fufugateway",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-30",
   "assets": {
@@ -16,17 +16,17 @@
     "LOG_LEVEL": "info"
   },
   "d1_databases": [
+    // 省略 database_id：Workers Builds 首次部署时自动创建并绑定；也可填入已有数据库 ID。
     {
       "binding": "DB",
       "database_name": "fufu-gateway",
-      "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"
     }
   ],
   "kv_namespaces": [
+    // 省略 id：Workers Builds 首次部署时自动创建；也可填入已有 namespace ID。
     {
-      "binding": "CONFIG_KV",
-      "id": "00000000000000000000000000000000"
+      "binding": "CONFIG_KV"
     }
   ],
   "durable_objects": {
