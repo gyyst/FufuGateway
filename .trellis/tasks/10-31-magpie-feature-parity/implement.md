@@ -207,3 +207,21 @@
 - [ ] 推送后等待 Workers Builds 成功。
 - [ ] 部署后重新运行 `/admin/setup/status` 和 `/health/ready`。
 - [ ] 如需生产验收，请用户提供有效上游 Key 或由用户在 UI 中添加上游账户；不要将真实密钥写入仓库或对话。
+
+## 10. 完成记录
+
+- 完成日期：2026-10-31
+- 实现提交：`346e098` `feat: add guided provider setup and gateway diagnostics`
+- 验证结果：
+  - `npm run typecheck`：通过
+  - `npm test`：24 个测试文件、226 项测试通过
+  - `npm run deploy:dry-run`：通过
+  - Cloudflare Workers Builds：成功
+  - 线上 `/health`、`/health/ready`、`/ui`、`/ui-static/app.js`、`/admin/provider-presets`、`/admin/setup/status`、`/admin/routing/explain`、`/admin/gateway/test` 均返回预期结果
+  - 本地 `wrangler dev` + 浏览器冒烟：登录、快速开始、预设预填、账户添加、手动模型、路由解析、客户端接入通过
+- 实现偏差：
+  - Provider 测试保持模型列表测试；Chat 测试由 `/admin/gateway/test` 和 Provider 设置面板的「Chat 自测」承担。
+  - 预设不包含建议模型 ID；模型通过上游同步或管理员手动添加，避免使用过期/错误模型 ID。
+- 未完成的外部验证：
+  - 真实上游 Chat 自测需要有效上游账户。当前线上 `huawei` Provider 没有账户和模型，因此线上只验证到诊断/错误路径，未发起真实模型请求。
+  - 用户需要自行在 UI 或 Worker Secret 中添加上游凭据，确认模型能力并发布配置。
