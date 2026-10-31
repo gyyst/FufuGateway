@@ -218,6 +218,24 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: #2dd4bf; }
 .form-grid .span-2 { grid-column: span 2; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
+.check-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: #0d141d;
+}
+.check-item { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; cursor: pointer; }
+.check-item input { flex: 0 0 auto; }
+.check-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inline-picker { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.inline-picker select { flex: 1 1 auto; min-width: 0; }
+.empty.small { padding: 12px; font-size: 12px; }
+
 .error-text { color: var(--danger); font-size: 12px; min-height: 16px; }
 .hint { color: var(--muted); font-size: 12px; margin: 0; }
 
@@ -336,6 +354,8 @@ pre {
   .grid.cols-2, .grid.cols-3, .grid.cols-4 { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid .span-2 { grid-column: span 1; }
+  .check-list { grid-template-columns: 1fr; }
+  .inline-picker { flex-direction: column; align-items: stretch; }
   .setup-grid { grid-template-columns: 1fr; }
   .preset-item { flex-direction: column; align-items: flex-start; }
   .bar-row { grid-template-columns: 70px 1fr 80px; }

@@ -5,6 +5,11 @@
     token: sessionStorage.getItem("fufu_admin_token") || "",
     providers: [],
     users: [],
+    models: [],
+    aliases: [],
+    combos: [],
+    wildcards: [],
+    routeLookupsLoaded: false,
     page: "overview",
   };
 
@@ -138,9 +143,198 @@
     }
   }
 
+  async function ensureRouteLookups(force) {
+    if (!force && state.routeLookupsLoaded) return;
+    const [models, aliases, combos, wildcards] = await Promise.all([
+      api("/admin/models"),
+      api("/admin/aliases"),
+      api("/admin/combos"),
+      api("/admin/wildcards"),
+    ]);
+    state.models = models.data || [];
+    state.aliases = aliases.data || [];
+    state.combos = combos.data || [];
+    state.wildcards = wildcards.data || [];
+    state.routeLookupsLoaded = true;
+  }
+
   function providerName(id) {
     const provider = state.providers.find((item) => item.id === id);
     return provider ? provider.name : id;
+  }
+
+  function activeProvider(id) {
+    const provider = state.providers.find((item) => item.id === id);
+    return provider && provider.enabled !== false ? provider : undefined;
+  }
+
+  function activeModelEntries() {
+    const entries = [];
+    const seen = new Set();
+    for (const model of state.models) {
+      if (model.enabled === false) continue;
+      const provider = activeProvider(model.providerId);
+      if (!provider) continue;
+      const value = provider.name + "/" + model.modelId;
+      if (seen.has(value)) continue;
+      seen.add(value);
+      entries.push({ value, label: provider.name + " / " + model.modelId });
+    }
+    entries.sort((a, b) => a.label.localeCompare(b.label));
+    return entries;
+  }
+
+  function routeTargetEntries(except) {
+    const entries = activeModelEntries().map((entry) => ({
+      value: JSON.stringify(entry.value),
+      label: "模型 · " + entry.label,
+    }));
+    const seen = new Set(entries.map((entry) => entry.value));
+    for (const alias of state.aliases) {
+      if (alias.enabled === false) continue;
+      if (except && (except.aliasId === alias.id || except.aliasName === alias.name)) continue;
+      const value = JSON.stringify({ alias: alias.name });
+      if (seen.has(value)) continue;
+      seen.add(value);
+      entries.push({ value, label: "别名 · " + alias.name });
+    }
+    for (const combo of state.combos) {
+      if (combo.enabled === false) continue;
+      if (except && (except.comboId === combo.id || except.comboName === combo.name)) continue;
+      const value = JSON.stringify({ combo: combo.name });
+      if (seen.has(value)) continue;
+      seen.add(value);
+      entries.push({ value, label: "Combo · " + combo.name });
+    }
+    for (const rule of state.wildcards) {
+      if (rule.enabled === false) continue;
+      if (except && (except.wildcardId === rule.id || except.wildcardPattern === rule.pattern)) continue;
+      const value = JSON.stringify({ wildcard: rule.pattern });
+      if (seen.has(value)) continue;
+      seen.add(value);
+      entries.push({ value, label: "通配符 · " + rule.pattern });
+    }
+    return entries;
+  }
+
+  function nativeModelEntries() {
+    const entries = [];
+    const seen = new Set();
+    for (const model of state.models) {
+      if (seen.has(model.modelId)) continue;
+      seen.add(model.modelId);
+      entries.push({
+        value: model.modelId,
+        label: model.modelId + " · " + providerName(model.providerId),
+      });
+    }
+    entries.sort((a, b) => a.label.localeCompare(b.label));
+    return entries;
+  }
+
+  function routeNameEntries() {
+    const entries = nativeModelEntries();
+    const seen = new Set(entries.map((entry) => entry.value));
+    for (const alias of state.aliases) {
+      if (seen.has(alias.name)) continue;
+      seen.add(alias.name);
+      entries.push({ value: alias.name, label: "别名 · " + alias.name });
+    }
+    for (const combo of state.combos) {
+      if (seen.has(combo.name)) continue;
+      seen.add(combo.name);
+      entries.push({ value: combo.name, label: "Combo · " + combo.name });
+    }
+    return entries;
+  }
+
+  function diagnosticEntries() {
+    const entries = activeModelEntries().map((entry) => ({
+      value: entry.value,
+      label: "模型 · " + entry.label,
+    }));
+    const seen = new Set(entries.map((entry) => entry.value));
+    for (const alias of state.aliases) {
+      if (alias.enabled === false || seen.has(alias.name)) continue;
+      seen.add(alias.name);
+      entries.push({ value: alias.name, label: "别名 · " + alias.name });
+    }
+    for (const combo of state.combos) {
+      if (combo.enabled === false || seen.has(combo.name)) continue;
+      seen.add(combo.name);
+      entries.push({ value: combo.name, label: "Combo · " + combo.name });
+    }
+    return entries;
+  }
+
+  function providerEntries() {
+    return state.providers.map((provider) => ({
+      value: provider.name,
+      label: provider.name + (provider.enabled === false ? "（禁用）" : ""),
+    }));
+  }
+
+  function mergeCurrentEntries(entries, values, prefix) {
+    const merged = entries.slice();
+    const seen = new Set(merged.map((entry) => String(entry.value)));
+    for (const value of values) {
+      const normalized = String(value);
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      merged.push({ value: normalized, label: prefix + normalized });
+    }
+    return merged;
+  }
+
+  function optionListHtml(entries, current, placeholder, required) {
+    return (
+      '<option value="">' +
+      esc(placeholder) +
+      "</option>" +
+      entries
+        .map((entry) => {
+          return (
+            '<option value="' +
+            esc(entry.value) +
+            '"' +
+            (String(entry.value) === String(current) ? " selected" : "") +
+            ">" +
+            esc(entry.label) +
+            "</option>"
+          );
+        })
+        .join("")
+    );
+  }
+
+  function checkListHtml(name, entries, selectedValues, emptyText) {
+    if (entries.length === 0) {
+      return '<div class="empty small">' + esc(emptyText) + "</div>";
+    }
+    const selected = new Set(selectedValues.map((value) => String(value)));
+    return (
+      '<div class="check-list">' +
+      entries
+        .map((entry) => {
+          return (
+            '<label class="check-item"><input type="checkbox" name="' +
+            esc(name) +
+            '" value="' +
+            esc(entry.value) +
+            '"' +
+            (selected.has(String(entry.value)) ? " checked" : "") +
+            "><span>" +
+            esc(entry.label) +
+            "</span></label>"
+          );
+        })
+        .join("") +
+      "</div>"
+    );
+  }
+
+  function routeTargetJson(value) {
+    return typeof value === "string" ? JSON.stringify(value) : JSON.stringify(value);
   }
 
   function userName(id) {
@@ -299,7 +493,109 @@
         "</div>"
       );
     }
-    if (field.type === "select") {
+    if (field.type === "routeTarget") {
+      const current = fieldValue(field, row, overrides);
+      const currentJson =
+        current === undefined || current === null || current === ""
+          ? ""
+          : routeTargetJson(current);
+      control =
+        '<select id="' +
+        name +
+        '" name="' +
+        field.name +
+        '"' +
+        (field.required ? " required" : "") +
+        ">" +
+        optionListHtml(routeTargetEntries(field.excludeRoute), currentJson, "选择路由目标", field.required) +
+        "</select>";
+    } else if (field.type === "modelSelect") {
+      const current = fieldValue(field, row, overrides) || "";
+      const entries = mergeCurrentEntries(
+        activeModelEntries(),
+        current === "" ? [] : [current],
+        "当前值 · ",
+      );
+      control =
+        '<select id="' +
+        name +
+        '" name="' +
+        field.name +
+        '"' +
+        (field.required ? " required" : "") +
+        ">" +
+        optionListHtml(entries, current, "选择模型", field.required) +
+        "</select>";
+    } else if (field.type === "providerModelSelect") {
+      const providerId = row && row.providerId ? row.providerId : state.providers[0] ? state.providers[0].id : "";
+      const models = state.models.filter((model) => model.providerId === providerId);
+      const current = fieldValue(field, row, overrides) || "";
+      const entries = mergeCurrentEntries(
+        models.map((model) => ({
+          value: field.modelValue === "upstreamModelId" ? model.upstreamModelId : model.modelId,
+          label:
+            field.modelValue === "upstreamModelId"
+              ? model.modelId + " → " + model.upstreamModelId
+              : model.modelId,
+        })),
+        current === "" ? [] : [current],
+        "当前值 · ",
+      );
+      control =
+        '<select id="' +
+        name +
+        '" name="' +
+        field.name +
+        '"' +
+        (field.required ? " required" : "") +
+        ' data-provider-model="1">' +
+        optionListHtml(entries, current, models.length ? "选择模型" : "该 Provider 暂无模型", field.required) +
+        "</select>";
+    } else if (
+      field.type === "routeTargetMulti" ||
+      field.type === "modelMulti" ||
+      field.type === "providerMulti"
+    ) {
+      const current = fieldValue(field, row, overrides) || [];
+      if (field.type === "routeTargetMulti") {
+        const currentJson = current.map(routeTargetJson);
+        control = checkListHtml(
+          field.name,
+          mergeCurrentEntries(routeTargetEntries(field.excludeRoute), currentJson, "当前目标 · "),
+          currentJson,
+          "暂无模型、别名、Combo 或通配符",
+        );
+      } else if (field.type === "modelMulti") {
+        control = checkListHtml(
+          field.name,
+          mergeCurrentEntries(routeNameEntries(), current, "当前值 · "),
+          current,
+          "暂无模型",
+        );
+      } else {
+        control = checkListHtml(
+          field.name,
+          mergeCurrentEntries(providerEntries(), current, "当前值 · "),
+          current,
+          "暂无 Provider",
+        );
+      }
+    } else if (field.type === "comboNodes") {
+      const current = fieldValue(field, row, overrides) || [];
+      control =
+        '<div class="inline-picker"><select id="combo-node-picker">' +
+        optionListHtml(routeTargetEntries(field.excludeRoute), "", "选择模型、别名、Combo 或通配符", false) +
+        '</select><button type="button" class="btn small-btn" id="combo-node-add">添加节点</button></div>' +
+        '<textarea id="' +
+        name +
+        '" name="' +
+        field.name +
+        '" rows="' +
+        (field.rows || 8) +
+        '">' +
+        esc(JSON.stringify(current, null, 2)) +
+        "</textarea>";
+    } else if (field.type === "select") {
       const options = optionList(field);
       const current = value === undefined ? field.default : value;
       control =
@@ -427,9 +723,48 @@
       if (field.createOnly && isEdit) continue;
       if (field.editOnly && !isEdit) continue;
       const element = form.elements.namedItem(field.name);
-      if (!element) continue;
+      if (!element) {
+        if (field.type === "routeTargetMulti" && field.required) {
+          throw new Error(field.label + " 至少选择一项");
+        }
+        continue;
+      }
       if (field.type === "checkbox") {
         payload[field.name] = element.checked;
+        continue;
+      }
+      if (
+        field.type === "routeTargetMulti" ||
+        field.type === "modelMulti" ||
+        field.type === "providerMulti"
+      ) {
+        const inputs = Array.from(
+          form.querySelectorAll('input[type="checkbox"][name="' + field.name + '"]'),
+        );
+        let values = inputs.filter((input) => input.checked).map((input) => input.value);
+        if (field.type === "routeTargetMulti") {
+          try {
+            values = values.map((value) => JSON.parse(value));
+          } catch {
+            throw new Error(field.label + " 包含无效目标");
+          }
+        }
+        if (field.required && values.length === 0) {
+          throw new Error(field.label + " 至少选择一项");
+        }
+        payload[field.name] = values;
+        continue;
+      }
+      if (field.type === "routeTarget") {
+        if (element.value === "") {
+          if (field.required) throw new Error(field.label + " 不能为空");
+          continue;
+        }
+        try {
+          payload[field.name] = JSON.parse(element.value);
+        } catch {
+          throw new Error(field.label + " 不是合法路由目标");
+        }
         continue;
       }
       const value = element.value;
@@ -438,11 +773,18 @@
         const number = Number(value);
         if (!Number.isFinite(number)) throw new Error(field.label + " 必须是数字");
         payload[field.name] = number;
-      } else if (field.type === "json") {
+      } else if (field.type === "json" || field.type === "comboNodes") {
         try {
           payload[field.name] = JSON.parse(value);
         } catch {
           throw new Error(field.label + " 不是合法 JSON");
+        }
+        if (
+          field.type === "comboNodes" &&
+          field.required &&
+          (!Array.isArray(payload[field.name]) || payload[field.name].length === 0)
+        ) {
+          throw new Error(field.label + " 至少添加一个节点");
         }
       } else if (field.type === "csv") {
         payload[field.name] = value
@@ -458,12 +800,124 @@
     return payload;
   }
 
+  function bindProviderModelSelects(body, fields, row) {
+    const providerField = fields.find(
+      (field) => field.name === "providerId" && field.type === "select",
+    );
+    const providerSelect = providerField ? body.querySelector('[name="providerId"]') : null;
+    const modelFields = fields.filter((field) => field.type === "providerModelSelect");
+    if (!providerSelect || modelFields.length === 0) return;
+
+    const update = () => {
+      const providerId = providerSelect.value;
+      const models = state.models.filter((model) => model.providerId === providerId);
+      for (const field of modelFields) {
+        const select = body.querySelector('[name="' + field.name + '"]');
+        if (!select) continue;
+        const current =
+          row && row.providerId === providerId && row[field.name] !== undefined
+            ? row[field.name]
+            : "";
+        const entries = mergeCurrentEntries(
+          models.map((model) => ({
+            value:
+              field.modelValue === "upstreamModelId"
+                ? model.upstreamModelId
+                : model.modelId,
+            label:
+              field.modelValue === "upstreamModelId"
+                ? model.modelId + " → " + model.upstreamModelId
+                : model.modelId,
+          })),
+          current === "" ? [] : [current],
+          "当前值 · ",
+        );
+        select.innerHTML = optionListHtml(
+          entries,
+          current,
+          models.length ? "选择模型" : "该 Provider 暂无模型",
+          field.required,
+        );
+      }
+    };
+
+    providerSelect.addEventListener("change", update);
+    update();
+  }
+
+  function bindComboNodePicker(body) {
+    const picker = body.querySelector("#combo-node-picker");
+    const add = body.querySelector("#combo-node-add");
+    const textarea = body.querySelector('textarea[name="nodes"]');
+    if (!picker || !add || !textarea) return;
+    add.onclick = () => {
+      if (!picker.value) {
+        notify("请先选择一个模型或路由目标", "bad");
+        return;
+      }
+      let nodes;
+      try {
+        nodes = JSON.parse(textarea.value || "[]");
+      } catch {
+        notify("节点 JSON 不是合法数组", "bad");
+        return;
+      }
+      if (!Array.isArray(nodes)) {
+        notify("节点必须是数组", "bad");
+        return;
+      }
+      let target;
+      try {
+        target = JSON.parse(picker.value);
+      } catch {
+        notify("选择的节点无效", "bad");
+        return;
+      }
+      if (nodes.some((node) => JSON.stringify(node) === JSON.stringify(target))) {
+        notify("该节点已经存在", "bad");
+        return;
+      }
+      nodes.push(target);
+      textarea.value = JSON.stringify(nodes, null, 2);
+      picker.value = "";
+    };
+  }
+
+  function entityNeedsRouteLookups(entity) {
+    const types = new Set([
+      "routeTarget",
+      "routeTargetMulti",
+      "modelSelect",
+      "providerModelSelect",
+      "modelMulti",
+      "providerMulti",
+      "comboNodes",
+    ]);
+    return entity.fields.some((field) => types.has(field.type));
+  }
+
   async function openEntityForm(entity, row, overrides) {
     await ensureLookups();
+    if (entityNeedsRouteLookups(entity)) {
+      await ensureRouteLookups();
+    }
+    const fields = entity.fields.map((field) => {
+      let excludeRoute;
+      if (entity.endpoint === "/admin/aliases" && field.name === "target" && row) {
+        excludeRoute = { aliasId: row.id, aliasName: row.name };
+      } else if (entity.endpoint === "/admin/wildcards" && field.name === "targets" && row) {
+        excludeRoute = { wildcardId: row.id, wildcardPattern: row.pattern };
+      } else if (entity.endpoint === "/admin/combos" && field.name === "nodes" && row) {
+        excludeRoute = { comboId: row.id, comboName: row.name };
+      }
+      return excludeRoute === undefined ? field : { ...field, excludeRoute };
+    });
     const body = modal(
       entity.title + (row ? " · 编辑" : " · 新建"),
-      formHtml(entity.fields, row || null, overrides || null),
+      formHtml(fields, row || null, overrides || null),
     );
+    bindProviderModelSelects(body, entity.fields, row);
+    bindComboNodePicker(body);
     const form = $("#entity-form", body);
     $("[data-cancel]", form).onclick = closeModal;
     form.onsubmit = async (event) => {
@@ -476,6 +930,9 @@
         });
         closeModal();
         notify("已保存", "ok");
+        state.providers = [];
+        state.users = [];
+        state.routeLookupsLoaded = false;
         await route();
       } catch (error) {
         notify(error.message, "bad");
@@ -488,6 +945,9 @@
     try {
       await api(entity.endpoint + "/" + row.id, { method: "DELETE" });
       notify("已删除", "ok");
+      state.providers = [];
+      state.users = [];
+      state.routeLookupsLoaded = false;
       await route();
     } catch (error) {
       notify(error.message, "bad");
@@ -645,12 +1105,11 @@
     { name: "name", label: "别名", required: true },
     {
       name: "target",
-      label: "目标 (JSON)",
-      type: "json",
+      label: "目标",
+      type: "routeTarget",
       required: true,
-      default: "openai/gpt-4o-mini",
       span: 2,
-      help: '字符串表示模型引用，也可用 {"combo":"name"} / {"wildcard":"pattern"} / {"alias":"name"}',
+      help: "从下拉选择模型、别名、Combo 或通配符；模型使用 provider/model 形式。",
     },
     { name: "enabled", label: "启用", type: "checkbox", default: true },
     { name: "priority", label: "优先级", type: "number", default: 100 },
@@ -662,12 +1121,11 @@
     { name: "strategy", label: "策略", type: "select", options: STRATEGIES, default: "fallback" },
     {
       name: "targets",
-      label: "目标列表 (JSON)",
-      type: "json",
-      default: ["openai/gpt-4o-mini"],
+      label: "目标列表",
+      type: "routeTargetMulti",
+      required: true,
       span: 2,
-      rows: 5,
-      help: '字符串或 {"combo":"name"}、{"alias":"name"}、{"wildcard":"pattern"}',
+      help: "可多选模型、别名、Combo 或通配符；至少选择一项。",
     },
     { name: "priority", label: "优先级", type: "number", default: 100 },
     { name: "enabled", label: "启用", type: "checkbox", default: true },
@@ -676,7 +1134,14 @@
 
   const pricingFields = [
     { name: "providerId", label: "Provider", type: "select", optionsFrom: "providers", required: true },
-    { name: "modelId", label: "上游模型 ID", required: true },
+    {
+      name: "modelId",
+      label: "上游模型 ID",
+      type: "providerModelSelect",
+      modelValue: "upstreamModelId",
+      required: true,
+      help: "从当前 Provider 的模型中选择；没有模型时请先同步或创建模型。",
+    },
     { name: "inputPrice", label: "输入价格 / 1M", type: "number", step: "0.000001", required: true },
     { name: "outputPrice", label: "输出价格 / 1M", type: "number", step: "0.000001", required: true },
     { name: "cachedInputPrice", label: "缓存输入价格", type: "number", step: "0.000001" },
@@ -688,16 +1153,21 @@
   const comboFields = [
     { name: "name", label: "名称", required: true },
     { name: "strategy", label: "策略", type: "select", options: STRATEGIES, default: "fallback" },
-    { name: "judgeModel", label: "Judge Model", help: "fusion 策略必填，例如 openai/gpt-4o-mini" },
+    {
+      name: "judgeModel",
+      label: "Judge Model",
+      type: "modelSelect",
+      help: "fusion 策略必填；从已启用模型中选择，使用 provider/model 形式。",
+    },
     {
       name: "nodes",
-      label: "节点 (JSON)",
-      type: "json",
+      label: "节点",
+      type: "comboNodes",
       required: true,
       span: 2,
       rows: 8,
-      default: ["openai/gpt-4o-mini"],
-      help: '字符串为模型引用；对象可带 weight、priority、timeoutMs、maxRetries，或 {"combo":"name"}',
+      default: [],
+      help: "先用下拉选择模型/别名/Combo/通配符并点击添加；高级节点可直接编辑 JSON。",
     },
     { name: "timeoutMs", label: "整体超时 (ms)", type: "number" },
     { name: "maxConcurrency", label: "最大并发", type: "number", min: 1 },
@@ -1238,6 +1708,7 @@
           method: "POST",
         });
         notify("同步完成：新增 " + result.created + "，跳过 " + result.skipped, "ok");
+        state.routeLookupsLoaded = false;
         closeModal();
         await route();
       } catch (error) {
@@ -1352,6 +1823,7 @@
             method: "PUT",
             body: { enabled: model.enabled !== true },
           });
+          state.routeLookupsLoaded = false;
           closeModal();
           await route();
           await openProviderModels(provider);
@@ -1367,6 +1839,7 @@
           method: "POST",
         });
         notify("同步完成：新增 " + result.created + "，跳过 " + result.skipped, "ok");
+        state.routeLookupsLoaded = false;
         closeModal();
         await route();
         await openProviderModels(provider);
@@ -1392,8 +1865,20 @@
     { name: "userId", label: "用户", type: "select", optionsFrom: "users", required: true, createOnly: true },
     { name: "name", label: "名称", required: true },
     { name: "scopes", label: "Scopes", type: "csv", default: ["inference"] },
-    { name: "modelAllowlist", label: "模型白名单", type: "csv" },
-    { name: "providerAllowlist", label: "Provider 白名单", type: "csv" },
+    {
+      name: "modelAllowlist",
+      label: "模型白名单",
+      type: "modelMulti",
+      span: 2,
+      help: "不选择表示不限制；可选择原生模型 ID、别名或 Combo。",
+    },
+    {
+      name: "providerAllowlist",
+      label: "Provider 白名单",
+      type: "providerMulti",
+      span: 2,
+      help: "不选择表示不限制；只能访问所选 Provider。",
+    },
     { name: "rpmLimit", label: "RPM 限制", type: "number" },
     { name: "tpmLimit", label: "TPM 限制", type: "number" },
     { name: "concurrencyLimit", label: "并发限制", type: "number" },
@@ -1431,6 +1916,7 @@
   function keysPage(root) {
     return (async () => {
       await ensureLookups();
+      await ensureRouteLookups();
       const response = await api("/admin/api-keys");
       const rows = response.data || [];
       root.innerHTML =
@@ -1683,12 +2169,22 @@
   // ---------------------------------------------------------------------
 
   async function usagePage(root) {
+    await ensureLookups();
+    await ensureRouteLookups();
+    const modelFilterOptions = nativeModelEntries()
+      .map(
+        (entry) =>
+          '<option value="' + esc(entry.value) + '">' + esc(entry.label) + "</option>",
+      )
+      .join("");
     root.innerHTML =
       '<div class="section-head"><h2>用量汇总</h2><div class="actions">' +
       '<select id="usage-days" class="btn"><option value="7">近 7 天</option><option value="30" selected>近 30 天</option><option value="90">近 90 天</option></select>' +
       '<select id="usage-group" class="btn"><option value="day">按日</option><option value="week">按周</option><option value="month">按月</option></select>' +
       "</div></div><div id=\"usage-summary\"></div>" +
-      '<div class="section-head"><h2>请求日志</h2><div class="actions"><input id="request-model" placeholder="模型过滤" style="width:180px"></div></div>' +
+      '<div class="section-head"><h2>请求日志</h2><div class="actions"><select id="request-model" class="btn"><option value="">全部模型</option>' +
+      modelFilterOptions +
+      "</select></div></div>" +
       '<div id="usage-requests"></div>';
 
     const load = async () => {
@@ -1843,25 +2339,20 @@
   }
 
   async function diagnosticsPage(root) {
-    let models = [];
-    try {
-      const response = await api("/admin/models");
-      models = response.data || [];
-    } catch {
-      models = [];
-    }
+    await ensureLookups();
+    await ensureRouteLookups();
+    const entries = diagnosticEntries();
     root.innerHTML =
       '<div class="section-head"><h2>路由诊断</h2></div>' +
       '<div class="card"><div class="form-grid">' +
-      '<label class="field"><span>模型名</span><input id="diag-model" list="diag-models" placeholder="provider/model 或原生模型"></label>' +
+      '<label class="field"><span>模型</span><select id="diag-model"' +
+      (entries.length === 0 ? " disabled" : "") +
+      ">" +
+      optionListHtml(entries, "", entries.length ? "选择模型、别名或 Combo" : "暂无可用模型", false) +
+      "</select></label>" +
       '<label class="field"><span>测试提示词</span><input id="diag-prompt" value="Reply with OK."></label>' +
       '<label class="field"><span>最大输出 Token</span><input id="diag-max" type="number" min="1" max="32" value="16"></label>' +
-      '</div><datalist id="diag-models">' +
-      models
-        .filter((model) => model.enabled)
-        .map((model) => '<option value="' + esc(model.modelId) + '"></option>')
-        .join("") +
-      '</datalist><div class="form-actions">' +
+      '</div><div class="form-actions">' +
       '<button class="btn" id="diag-explain">解析路由</button>' +
       '<button class="btn primary" id="diag-test">运行网关自测</button>' +
       '</div><p class="hint">网关自测会发起一次真实上游请求，可能产生费用；最多 32 个输出 Token。</p></div>' +
@@ -1881,7 +2372,7 @@
     $("#diag-explain", root).onclick = async () => {
       const model = $("#diag-model", root).value.trim();
       if (!model) {
-        notify("请输入模型名", "bad");
+        notify("请选择模型", "bad");
         return;
       }
       try {
@@ -1897,7 +2388,7 @@
     $("#diag-test", root).onclick = async () => {
       const model = $("#diag-model", root).value.trim();
       if (!model) {
-        notify("请输入模型名", "bad");
+        notify("请选择模型", "bad");
         return;
       }
       if (!confirm("自测会发起真实上游请求并可能产生费用，继续？")) return;
