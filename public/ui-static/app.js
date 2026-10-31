@@ -346,6 +346,474 @@
     return typeof value === "string" ? JSON.stringify(value) : JSON.stringify(value);
   }
 
+  function selectHtml(name, options, current, placeholder) {
+    return (
+      '<select name="' +
+      esc(name) +
+      '">' +
+      (placeholder === undefined ? "" : '<option value="">' + esc(placeholder) + "</option>") +
+      options
+        .map(([value, label]) => {
+          return (
+            '<option value="' +
+            esc(value) +
+            '"' +
+            (String(value) === String(current) ? " selected" : "") +
+            ">" +
+            esc(label) +
+            "</option>"
+          );
+        })
+        .join("") +
+      "</select>"
+    );
+  }
+
+  function kvRowHtml(key, value, keyPlaceholder, valuePlaceholder) {
+    return (
+      '<div class="kv-row" data-kv-row><input data-kv-key placeholder="' +
+      esc(keyPlaceholder) +
+      '" value="' +
+      esc(key) +
+      '"><input data-kv-value placeholder="' +
+      esc(valuePlaceholder) +
+      '" value="' +
+      esc(value) +
+      '"><button type="button" class="btn small-btn danger" data-kv-remove>删除</button></div>'
+    );
+  }
+
+  function keyValueEditorHtml(fieldName, entries, keyPlaceholder, valuePlaceholder) {
+    const rows = entries.length > 0 ? entries : [{ key: "", value: "" }];
+    return (
+      '<div class="kv-editor" data-kv-field="' +
+      esc(fieldName) +
+      '" data-kv-key-placeholder="' +
+      esc(keyPlaceholder) +
+      '" data-kv-value-placeholder="' +
+      esc(valuePlaceholder) +
+      '"><div class="kv-rows">' +
+      rows
+        .map((entry) => kvRowHtml(entry.key, entry.value, keyPlaceholder, valuePlaceholder))
+        .join("") +
+      '</div><button type="button" class="btn small-btn" data-kv-add>添加一项</button></div>'
+    );
+  }
+
+  function readKeyValue(container) {
+    const result = {};
+    if (!container) return result;
+    for (const row of container.querySelectorAll("[data-kv-row]")) {
+      const key = row.querySelector("[data-kv-key]")?.value.trim() ?? "";
+      if (key === "") continue;
+      result[key] = row.querySelector("[data-kv-value]")?.value ?? "";
+    }
+    return result;
+  }
+
+  function bindKeyValueEditors(root) {
+    for (const container of root.querySelectorAll("[data-kv-field]")) {
+      const rows = container.querySelector(".kv-rows");
+      const add = container.querySelector("[data-kv-add]");
+      if (!rows || !add) continue;
+      add.onclick = () => {
+        rows.insertAdjacentHTML(
+          "beforeend",
+          kvRowHtml(
+            "",
+            "",
+            container.dataset.kvKeyPlaceholder || "键",
+            container.dataset.kvValuePlaceholder || "值",
+          ),
+        );
+      };
+      container.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof Element) || !target.closest("[data-kv-remove]")) return;
+        const row = target.closest("[data-kv-row]");
+        if (row) row.remove();
+        if (!rows.querySelector("[data-kv-row]")) {
+          rows.insertAdjacentHTML(
+            "beforeend",
+            kvRowHtml(
+              "",
+              "",
+              container.dataset.kvKeyPlaceholder || "键",
+              container.dataset.kvValuePlaceholder || "值",
+            ),
+          );
+        }
+      });
+    }
+  }
+
+  const BREAKER_DEFAULTS = {
+    failureThreshold: 3,
+    failureRate: 0.5,
+    minSamples: 5,
+    windowMs: 60000,
+    openMs: 30000,
+    halfOpenProbes: 2,
+  };
+
+  function isPlainObject(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  function providerExtraEditorHtml(extra) {
+    const config = isPlainObject(extra) ? extra : {};
+    const known = new Set([
+      "authMode",
+      "authHeader",
+      "authQueryParam",
+      "endpointPath",
+      "anthropicVersion",
+      "maxTokensField",
+      "includeStreamUsage",
+      "autoSyncModels",
+      "breaker",
+    ]);
+    const customEntries = [];
+    const preserved = {};
+    for (const [key, value] of Object.entries(config)) {
+      if (known.has(key)) continue;
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        customEntries.push({ key, value: String(value) });
+      } else {
+        preserved[key] = value;
+      }
+    }
+    const authMode = typeof config.authMode === "string" && config.authMode !== "" ? config.authMode : "default";
+    const maxTokensField =
+      config.maxTokensField === "max_completion_tokens" ? "max_completion_tokens" : config.maxTokensField === "max_tokens" ? "max_tokens" : "";
+    const tri = (value) => (value === true ? "true" : value === false ? "false" : "");
+    const breaker = isPlainObject(config.breaker) ? config.breaker : null;
+    const breakerValue = (key) => {
+      const value = breaker ? breaker[key] : BREAKER_DEFAULTS[key];
+      return typeof value === "number" && Number.isFinite(value) ? String(value) : String(BREAKER_DEFAULTS[key]);
+    };
+
+    return (
+      '<div class="extra-grid" data-provider-extra data-extra-preserved="' +
+      esc(JSON.stringify(preserved)) +
+      '">' +
+      '<label class="field"><span>认证方式</span>' +
+      selectHtml(
+        "extra_authMode",
+        [
+          ["default", "默认"],
+          ["bearer", "Authorization: Bearer"],
+          ["x-api-key", "x-api-key"],
+          ["x-goog-api-key", "x-goog-api-key"],
+          ["header", "自定义 Header"],
+          ["query", "查询参数"],
+          ["none", "无认证"],
+        ],
+        authMode,
+      ) +
+      "</label>" +
+      '<label class="field"><span>自定义认证 Header</span><input name="extra_authHeader" value="' +
+      esc(typeof config.authHeader === "string" ? config.authHeader : "") +
+      '" placeholder="例如 api-key"></label>' +
+      '<label class="field"><span>认证查询参数名</span><input name="extra_authQueryParam" value="' +
+      esc(typeof config.authQueryParam === "string" ? config.authQueryParam : "") +
+      '" placeholder="例如 key"></label>' +
+      '<label class="field"><span>自定义端点路径</span><input name="extra_endpointPath" value="' +
+      esc(typeof config.endpointPath === "string" ? config.endpointPath : "") +
+      '" placeholder="/v1/chat/completions"></label>' +
+      '<label class="field"><span>Anthropic 版本头</span><input name="extra_anthropicVersion" value="' +
+      esc(typeof config.anthropicVersion === "string" ? config.anthropicVersion : "") +
+      '" placeholder="2023-06-01"></label>' +
+      '<label class="field"><span>最大 Token 字段</span>' +
+      selectHtml(
+        "extra_maxTokensField",
+        [
+          ["", "默认"],
+          ["max_tokens", "max_tokens"],
+          ["max_completion_tokens", "max_completion_tokens"],
+        ],
+        maxTokensField,
+      ) +
+      "</label>" +
+      '<label class="field"><span>流式 Usage</span>' +
+      selectHtml(
+        "extra_includeStreamUsage",
+        [["", "默认"], ["true", "启用"], ["false", "禁用"]],
+        tri(config.includeStreamUsage),
+      ) +
+      "</label>" +
+      '<label class="field"><span>定时同步模型</span>' +
+      selectHtml(
+        "extra_autoSyncModels",
+        [["", "默认"], ["true", "启用"], ["false", "禁用"]],
+        tri(config.autoSyncModels),
+      ) +
+      "</label>" +
+      '<div class="extra-block span-2"><label class="checkbox-row"><input type="checkbox" name="extra_breaker_enabled"' +
+      (breaker !== null ? " checked" : "") +
+      "><span>自定义熔断参数</span></label>" +
+      '<div class="form-grid">' +
+      '<label class="field"><span>失败阈值</span><input name="extra_breaker_failureThreshold" type="number" min="1" value="' +
+      esc(breakerValue("failureThreshold")) +
+      '"></label>' +
+      '<label class="field"><span>失败率阈值</span><input name="extra_breaker_failureRate" type="number" min="0" max="1" step="0.01" value="' +
+      esc(breakerValue("failureRate")) +
+      '"></label>' +
+      '<label class="field"><span>最小样本</span><input name="extra_breaker_minSamples" type="number" min="1" value="' +
+      esc(breakerValue("minSamples")) +
+      '"></label>' +
+      '<label class="field"><span>统计窗口 (ms)</span><input name="extra_breaker_windowMs" type="number" min="1" value="' +
+      esc(breakerValue("windowMs")) +
+      '"></label>' +
+      '<label class="field"><span>打开时长 (ms)</span><input name="extra_breaker_openMs" type="number" min="1" value="' +
+      esc(breakerValue("openMs")) +
+      '"></label>' +
+      '<label class="field"><span>半开探测数</span><input name="extra_breaker_halfOpenProbes" type="number" min="1" value="' +
+      esc(breakerValue("halfOpenProbes")) +
+      '"></label>' +
+      "</div></div>" +
+      '<div class="span-2"><div class="extra-subhead">其他扩展字段</div>' +
+      keyValueEditorHtml("extraConfig:custom", customEntries, "键", "值") +
+      (Object.keys(preserved).length > 0
+        ? '<p class="hint">未展示的嵌套扩展字段会保持原值。</p>'
+        : "") +
+      "</div></div>"
+    );
+  }
+
+  function readProviderExtra(form) {
+    const container = form.querySelector("[data-provider-extra]");
+    if (!container) return undefined;
+    const output = {};
+    try {
+      Object.assign(output, JSON.parse(container.dataset.extraPreserved || "{}"));
+    } catch {
+      // 保留值为空时忽略。
+    }
+    const value = (name) => form.elements.namedItem(name)?.value ?? "";
+    const authMode = value("extra_authMode");
+    if (authMode !== "" && authMode !== "default") output.authMode = authMode;
+    for (const [name, key] of [
+      ["extra_authHeader", "authHeader"],
+      ["extra_authQueryParam", "authQueryParam"],
+      ["extra_endpointPath", "endpointPath"],
+      ["extra_anthropicVersion", "anthropicVersion"],
+    ]) {
+      const current = value(name).trim();
+      if (current !== "") output[key] = current;
+    }
+    const maxTokensField = value("extra_maxTokensField");
+    if (maxTokensField !== "") output.maxTokensField = maxTokensField;
+    for (const [name, key] of [
+      ["extra_includeStreamUsage", "includeStreamUsage"],
+      ["extra_autoSyncModels", "autoSyncModels"],
+    ]) {
+      const current = value(name);
+      if (current === "true") output[key] = true;
+      else if (current === "false") output[key] = false;
+    }
+    if (form.elements.namedItem("extra_breaker_enabled")?.checked === true) {
+      const breaker = {};
+      for (const key of [
+        "failureThreshold",
+        "failureRate",
+        "minSamples",
+        "windowMs",
+        "openMs",
+        "halfOpenProbes",
+      ]) {
+        const raw = value("extra_breaker_" + key);
+        const number = Number(raw);
+        if (raw !== "" && Number.isFinite(number)) breaker[key] = number;
+      }
+      output.breaker = breaker;
+    }
+    Object.assign(output, readKeyValue(container.querySelector('[data-kv-field="extraConfig:custom"]')));
+    return output;
+  }
+
+  function stickyEditorHtml(sticky) {
+    const value = isPlainObject(sticky) ? sticky : {};
+    const enabled = value.enabled === true;
+    const ttl = typeof value.ttlSeconds === "number" ? value.ttlSeconds : 300;
+    const mode = value.mode === "first_available" ? "first_available" : "round_robin";
+    return (
+      '<div class="sticky-editor" data-sticky-editor>' +
+      '<label class="checkbox-row"><input type="checkbox" name="sticky_enabled"' +
+      (enabled ? " checked" : "") +
+      "><span>启用会话粘性</span></label>" +
+      '<div class="form-grid">' +
+      '<label class="field"><span>TTL (秒)</span><input name="sticky_ttlSeconds" type="number" min="1" value="' +
+      esc(ttl) +
+      '"></label>' +
+      '<label class="field"><span>模式</span>' +
+      selectHtml(
+        "sticky_mode",
+        [
+          ["round_robin", "轮询"],
+          ["first_available", "第一个可用"],
+        ],
+        mode,
+      ) +
+      "</label>" +
+      '<label class="field"><span>首条消息哈希</span><label class="checkbox-row"><input type="checkbox" name="sticky_hashFirstUserMessage"' +
+      (value.hashFirstUserMessage === true ? " checked" : "") +
+      "><span>允许用首条 user 消息作为会话标识</span></label></label>" +
+      "</div></div>"
+    );
+  }
+
+  function readSticky(form) {
+    const enabled = form.elements.namedItem("sticky_enabled")?.checked === true;
+    const ttl = Number(form.elements.namedItem("sticky_ttlSeconds")?.value || 300);
+    const mode =
+      form.elements.namedItem("sticky_mode")?.value === "first_available"
+        ? "first_available"
+        : "round_robin";
+    return {
+      enabled,
+      ttlSeconds: Number.isFinite(ttl) && ttl > 0 ? ttl : 300,
+      mode,
+      hashFirstUserMessage:
+        form.elements.namedItem("sticky_hashFirstUserMessage")?.checked === true,
+    };
+  }
+
+  function bindStickyEditors(root) {
+    for (const editor of root.querySelectorAll("[data-sticky-editor]")) {
+      const enabled = editor.querySelector('[name="sticky_enabled"]');
+      if (!enabled) continue;
+      const toggle = () => {
+        for (const input of editor.querySelectorAll(
+          '[name="sticky_ttlSeconds"], [name="sticky_mode"], [name="sticky_hashFirstUserMessage"]',
+        )) {
+          input.disabled = !enabled.checked;
+        }
+      };
+      enabled.addEventListener("change", toggle);
+      toggle();
+    }
+  }
+
+  function comboNodeTargetValue(node) {
+    if (typeof node === "string") return JSON.stringify(node);
+    if (!isPlainObject(node)) return "";
+    for (const key of ["model", "alias", "combo", "wildcard"]) {
+      if (typeof node[key] === "string") return JSON.stringify({ [key]: node[key] });
+    }
+    return "";
+  }
+
+  function comboNodeRowHtml(node, excludeRoute) {
+    const extras = isPlainObject(node) ? node : {};
+    const target = comboNodeTargetValue(node);
+    const entries = mergeCurrentEntries(
+      routeTargetEntries(excludeRoute),
+      target === "" ? [] : [target],
+      "当前目标 · ",
+    );
+    const value = (key) => (typeof extras[key] === "number" ? String(extras[key]) : "");
+    const strategy = typeof extras.strategy === "string" ? extras.strategy : "";
+    return (
+      '<div class="combo-node-row" data-combo-node><label class="field"><span>目标</span>' +
+      '<select data-node-target>' +
+      optionListHtml(entries, target, "选择模型/别名/Combo/通配符", true) +
+      "</select></label>" +
+      '<label class="field"><span>权重</span><input data-node-weight type="number" min="1" step="1" value="' +
+      esc(value("weight")) +
+      '"></label>' +
+      '<label class="field"><span>优先级</span><input data-node-priority type="number" min="0" step="1" value="' +
+      esc(value("priority")) +
+      '"></label>' +
+      '<label class="field"><span>超时 (ms)</span><input data-node-timeout type="number" min="100" step="1" value="' +
+      esc(value("timeoutMs")) +
+      '"></label>' +
+      '<label class="field"><span>重试</span><input data-node-retries type="number" min="0" step="1" value="' +
+      esc(value("maxRetries")) +
+      '"></label>' +
+      '<label class="field"><span>策略</span><select data-node-strategy><option value="">默认</option>' +
+      STRATEGIES.map(
+        (item) =>
+          '<option value="' + esc(item) + '"' + (item === strategy ? " selected" : "") + ">" + esc(item) + "</option>",
+      ).join("") +
+      "</select></label>" +
+      '<button type="button" class="btn small-btn danger" data-node-remove>删除</button></div>'
+    );
+  }
+
+  function comboNodesEditorHtml(nodes, excludeRoute) {
+    const list = Array.isArray(nodes) && nodes.length > 0 ? nodes : [null];
+    return (
+      '<div class="combo-node-editor" data-combo-node-editor><div class="combo-node-list" data-combo-node-list>' +
+      list.map((node) => comboNodeRowHtml(node, excludeRoute)).join("") +
+      '</div><button type="button" class="btn small-btn" data-combo-node-add>添加节点</button></div>'
+    );
+  }
+
+  function readComboNodes(form) {
+    const nodes = [];
+    for (const row of form.querySelectorAll("[data-combo-node]")) {
+      const targetRaw = row.querySelector("[data-node-target]")?.value ?? "";
+      if (targetRaw === "") continue;
+      let target;
+      try {
+        target = JSON.parse(targetRaw);
+      } catch {
+        throw new Error("节点目标无效");
+      }
+      const node = {};
+      if (typeof target === "string") node.model = target;
+      else if (isPlainObject(target)) {
+        for (const key of ["model", "alias", "combo", "wildcard"]) {
+          if (typeof target[key] === "string") node[key] = target[key];
+        }
+      }
+      if (!node.model && !node.alias && !node.combo && !node.wildcard) {
+        throw new Error("节点目标无效");
+      }
+      for (const [selector, key] of [
+        ["[data-node-weight]", "weight"],
+        ["[data-node-priority]", "priority"],
+        ["[data-node-timeout]", "timeoutMs"],
+        ["[data-node-retries]", "maxRetries"],
+      ]) {
+        const input = row.querySelector(selector);
+        const raw = input ? input.value.trim() : "";
+        if (raw === "") continue;
+        const number = Number(raw);
+        if (!Number.isFinite(number)) throw new Error("节点 " + key + " 必须是数字");
+        node[key] = number;
+      }
+      const strategy = row.querySelector("[data-node-strategy]")?.value;
+      if (strategy) node.strategy = strategy;
+      nodes.push(node);
+    }
+    if (nodes.length === 0) throw new Error("至少添加一个 Combo 节点");
+    return nodes;
+  }
+
+  function bindComboNodeEditor(root, fields) {
+    const field = fields.find((item) => item.type === "comboNodes");
+    const excludeRoute = field ? field.excludeRoute : undefined;
+    for (const editor of root.querySelectorAll("[data-combo-node-editor]")) {
+      const list = editor.querySelector("[data-combo-node-list]");
+      const add = editor.querySelector("[data-combo-node-add]");
+      if (!list || !add) continue;
+      add.onclick = () => {
+        list.insertAdjacentHTML("beforeend", comboNodeRowHtml(null, excludeRoute));
+      };
+      editor.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof Element) || !target.closest("[data-node-remove]")) return;
+        const row = target.closest("[data-combo-node]");
+        if (row) row.remove();
+        if (!list.querySelector("[data-combo-node]")) {
+          list.insertAdjacentHTML("beforeend", comboNodeRowHtml(null, excludeRoute));
+        }
+      });
+    }
+  }
+
   function userName(id) {
     const user = state.users.find((item) => item.id === id);
     return user ? user.email || user.displayName || user.id : id;
@@ -589,21 +1057,24 @@
           "暂无 Provider",
         );
       }
+    } else if (field.type === "keyValue") {
+      const current = fieldValue(field, row, overrides) || {};
+      const entries = isPlainObject(current)
+        ? Object.entries(current).map(([key, value]) => ({ key, value: String(value) }))
+        : [];
+      control = keyValueEditorHtml(
+        field.name,
+        entries,
+        field.keyPlaceholder || "键",
+        field.valuePlaceholder || "值",
+      );
+    } else if (field.type === "providerExtra") {
+      control = providerExtraEditorHtml(fieldValue(field, row, overrides) || {});
+    } else if (field.type === "sticky") {
+      control = stickyEditorHtml(fieldValue(field, row, overrides));
     } else if (field.type === "comboNodes") {
       const current = fieldValue(field, row, overrides) || [];
-      control =
-        '<div class="inline-picker"><select id="combo-node-picker">' +
-        optionListHtml(routeTargetEntries(field.excludeRoute), "", "选择模型、别名、Combo 或通配符", false) +
-        '</select><button type="button" class="btn small-btn" id="combo-node-add">添加节点</button></div>' +
-        '<textarea id="' +
-        name +
-        '" name="' +
-        field.name +
-        '" rows="' +
-        (field.rows || 8) +
-        '">' +
-        esc(JSON.stringify(current, null, 2)) +
-        "</textarea>";
+      control = comboNodesEditorHtml(current, field.excludeRoute);
     } else if (field.type === "select") {
       const options = optionList(field);
       const current = value === undefined ? field.default : value;
@@ -630,19 +1101,6 @@
           })
           .join("") +
         "</select>";
-    } else if (field.type === "json") {
-      const raw = value === undefined ? field.default : value;
-      const text = raw === undefined ? "" : JSON.stringify(raw, null, 2);
-      control =
-        '<textarea id="' +
-        name +
-        '" name="' +
-        field.name +
-        '" rows="' +
-        (field.rows || 6) +
-        '">' +
-        esc(text) +
-        "</textarea>";
     } else if (field.type === "csv") {
       const raw = value === undefined ? field.default : value;
       const text = Array.isArray(raw) ? raw.join(", ") : raw || "";
@@ -703,15 +1161,29 @@
         (field.required ? " required" : "") +
         ">";
     }
+    const complexField = new Set([
+      "keyValue",
+      "providerExtra",
+      "sticky",
+      "comboNodes",
+      "routeTargetMulti",
+      "modelMulti",
+      "providerMulti",
+    ]).has(field.type);
+    const tag = complexField ? "div" : "label";
     return (
-      '<label class="field' +
+      "<" +
+      tag +
+      ' class="field' +
       span +
       '"><span>' +
       esc(field.label) +
       "</span>" +
       control +
       (field.help ? '<div class="help">' + esc(field.help) + "</div>" : "") +
-      "</label>"
+      "</" +
+      tag +
+      ">"
     );
   }
 
@@ -731,6 +1203,25 @@
     for (const field of fields) {
       if (field.createOnly && isEdit) continue;
       if (field.editOnly && !isEdit) continue;
+      if (field.type === "comboNodes") {
+        payload[field.name] = readComboNodes(form);
+        continue;
+      }
+      if (field.type === "providerExtra") {
+        const extra = readProviderExtra(form);
+        if (extra !== undefined) payload[field.name] = extra;
+        continue;
+      }
+      if (field.type === "sticky") {
+        payload[field.name] = readSticky(form);
+        continue;
+      }
+      if (field.type === "keyValue") {
+        payload[field.name] = readKeyValue(
+          form.querySelector('[data-kv-field="' + field.name + '"]'),
+        );
+        continue;
+      }
       const element = form.elements.namedItem(field.name);
       if (!element) {
         if (field.type === "routeTargetMulti" && field.required) {
@@ -782,19 +1273,6 @@
         const number = Number(value);
         if (!Number.isFinite(number)) throw new Error(field.label + " 必须是数字");
         payload[field.name] = number;
-      } else if (field.type === "json" || field.type === "comboNodes") {
-        try {
-          payload[field.name] = JSON.parse(value);
-        } catch {
-          throw new Error(field.label + " 不是合法 JSON");
-        }
-        if (
-          field.type === "comboNodes" &&
-          field.required &&
-          (!Array.isArray(payload[field.name]) || payload[field.name].length === 0)
-        ) {
-          throw new Error(field.label + " 至少添加一个节点");
-        }
       } else if (field.type === "csv") {
         payload[field.name] = value
           .split(",")
@@ -854,44 +1332,6 @@
     update();
   }
 
-  function bindComboNodePicker(body) {
-    const picker = body.querySelector("#combo-node-picker");
-    const add = body.querySelector("#combo-node-add");
-    const textarea = body.querySelector('textarea[name="nodes"]');
-    if (!picker || !add || !textarea) return;
-    add.onclick = () => {
-      if (!picker.value) {
-        notify("请先选择一个模型或路由目标", "bad");
-        return;
-      }
-      let nodes;
-      try {
-        nodes = JSON.parse(textarea.value || "[]");
-      } catch {
-        notify("节点 JSON 不是合法数组", "bad");
-        return;
-      }
-      if (!Array.isArray(nodes)) {
-        notify("节点必须是数组", "bad");
-        return;
-      }
-      let target;
-      try {
-        target = JSON.parse(picker.value);
-      } catch {
-        notify("选择的节点无效", "bad");
-        return;
-      }
-      if (nodes.some((node) => JSON.stringify(node) === JSON.stringify(target))) {
-        notify("该节点已经存在", "bad");
-        return;
-      }
-      nodes.push(target);
-      textarea.value = JSON.stringify(nodes, null, 2);
-      picker.value = "";
-    };
-  }
-
   function entityNeedsRouteLookups(entity) {
     const types = new Set([
       "routeTarget",
@@ -925,8 +1365,10 @@
       entity.title + (row ? " · 编辑" : " · 新建"),
       formHtml(fields, row || null, overrides || null),
     );
-    bindProviderModelSelects(body, entity.fields, row);
-    bindComboNodePicker(body);
+    bindProviderModelSelects(body, fields, row);
+    bindKeyValueEditors(body);
+    bindStickyEditors(body);
+    bindComboNodeEditor(body, fields);
     const form = $("#entity-form", body);
     $("[data-cancel]", form).onclick = closeModal;
     form.onsubmit = async (event) => {
@@ -1069,19 +1511,19 @@
     { name: "maxRetries", label: "最大重试次数", type: "number", default: 2 },
     {
       name: "customHeaders",
-      label: "自定义请求头 (JSON)",
-      type: "json",
-      default: {},
+      label: "自定义请求头",
+      type: "keyValue",
       span: 2,
-      help: "禁止设置 authorization、x-api-key 等受保护头部",
+      keyPlaceholder: "Header 名称",
+      valuePlaceholder: "Header 值",
+      help: "禁止设置 authorization、x-api-key 等受保护头部。",
     },
     {
       name: "extraConfig",
-      label: "扩展配置 (JSON)",
-      type: "json",
-      default: {},
+      label: "扩展配置",
+      type: "providerExtra",
       span: 2,
-      help: "例如 authMode、endpointPath、breaker、maxTokensField",
+      help: "认证方式、端点路径、熔断器和其他扩展参数。",
     },
   ];
 
@@ -1176,16 +1618,16 @@
       span: 2,
       rows: 8,
       default: [],
-      help: "先用下拉选择模型/别名/Combo/通配符并点击添加；未启用模型会标记，使用前请在模型页启用。高级节点可直接编辑 JSON。",
+      help: "选择目标并设置权重/优先级/超时/重试/策略。未启用模型会标记，使用前请在模型页启用。",
     },
     { name: "timeoutMs", label: "整体超时 (ms)", type: "number" },
     { name: "maxConcurrency", label: "最大并发", type: "number", min: 1 },
     {
       name: "sticky",
-      label: "会话粘性 (JSON)",
-      type: "json",
+      label: "会话粘性",
+      type: "sticky",
       span: 2,
-      help: '{"enabled":true,"ttlSeconds":300,"mode":"round_robin"}',
+      help: "启用后，同一会话优先保持在上一次命中的节点。",
     },
     { name: "enabled", label: "启用", type: "checkbox", default: true },
     { name: "description", label: "说明", span: 2 },
@@ -2512,6 +2954,133 @@
   // 配置与审计
   // ---------------------------------------------------------------------
 
+  const SETTING_FIELDS = [
+    { key: "gateway.name", label: "网关名称", type: "text" },
+    {
+      key: "compat.default_policy",
+      label: "兼容策略",
+      type: "select",
+      options: [
+        ["strict", "STRICT"],
+        ["warn", "WARN"],
+        ["drop", "DROP"],
+        ["passthrough", "PASSTHROUGH"],
+      ],
+    },
+    { key: "limits.max_body_bytes", label: "最大请求体 (bytes)", type: "number", min: 0 },
+    { key: "limits.max_response_bytes", label: "最大响应体 (bytes)", type: "number", min: 0 },
+    { key: "limits.max_stream_event_bytes", label: "最大 SSE 事件 (bytes)", type: "number", min: 0 },
+    { key: "limits.max_combo_depth", label: "最大 Combo 深度", type: "number", min: 0 },
+    { key: "limits.max_combo_nodes", label: "最大 Combo 节点数", type: "number", min: 0 },
+    { key: "limits.max_combo_concurrency", label: "最大 Combo 并发", type: "number", min: 0 },
+    { key: "timeouts.request_ms", label: "请求总超时 (ms)", type: "number", min: 0 },
+    { key: "logging.retention_days", label: "日志保留天数", type: "number", min: 0 },
+    { key: "config.cache_ttl_ms", label: "配置缓存 TTL (ms)", type: "number", min: 0 },
+  ];
+
+  function corsRowHtml(value) {
+    return (
+      '<div class="cors-row" data-cors-row><input data-cors-value placeholder="https://example.com" value="' +
+      esc(value) +
+      '"><button type="button" class="btn small-btn danger" data-cors-remove>删除</button></div>'
+    );
+  }
+
+  function settingsFormHtml(data) {
+    const values = isPlainObject(data) ? data : {};
+    const fields = SETTING_FIELDS.map((field) => {
+      const current = values[field.key];
+      if (field.type === "select") {
+        return (
+          '<label class="field"><span>' +
+          esc(field.label) +
+          "</span>" +
+          selectHtml(
+            "setting_" + field.key,
+            field.options,
+            typeof current === "string" ? current : "",
+          ) +
+          "</label>"
+        );
+      }
+      if (field.type === "number") {
+        return (
+          '<label class="field"><span>' +
+          esc(field.label) +
+          '</span><input data-setting-key="' +
+          esc(field.key) +
+          '" type="number" min="' +
+          esc(field.min) +
+          '" value="' +
+          esc(typeof current === "number" ? current : "") +
+          '"></label>'
+        );
+      }
+      return (
+        '<label class="field"><span>' +
+        esc(field.label) +
+        '</span><input data-setting-key="' +
+        esc(field.key) +
+        '" type="text" value="' +
+        esc(typeof current === "string" ? current : "") +
+        '"></label>'
+      );
+    });
+    const origins = Array.isArray(values["cors.allowed_origins"])
+      ? values["cors.allowed_origins"].filter((value) => typeof value === "string")
+      : [];
+    return (
+      '<div class="form-grid">' +
+      fields.join("") +
+      '<div class="field span-2"><span>CORS 允许来源</span><div class="cors-editor" data-cors-editor><div class="kv-rows" data-cors-list>' +
+      (origins.length > 0 ? origins.map(corsRowHtml).join("") : corsRowHtml("")) +
+      '</div><button type="button" class="btn small-btn" data-cors-add>添加来源</button></div><div class="help">留空表示不返回 CORS 头。</div></div>' +
+      "</div>"
+    );
+  }
+
+  function readSettingsForm(root) {
+    const payload = {};
+    for (const input of root.querySelectorAll("[data-setting-key]")) {
+      const key = input.dataset.settingKey;
+      if (!key) continue;
+      if (input.type === "number") {
+        if (input.value === "") continue;
+        const number = Number(input.value);
+        if (!Number.isFinite(number)) throw new Error(key + " 必须是数字");
+        payload[key] = number;
+      } else {
+        payload[key] = input.value;
+      }
+    }
+    payload["compat.default_policy"] = root.querySelector('[name="setting_compat.default_policy"]')?.value;
+    const origins = Array.from(root.querySelectorAll("[data-cors-row]"))
+      .map((row) => row.querySelector("[data-cors-value]")?.value.trim() ?? "")
+      .filter((value) => value !== "");
+    payload["cors.allowed_origins"] = origins;
+    return payload;
+  }
+
+  function bindSettingsForm(root) {
+    for (const editor of root.querySelectorAll("[data-cors-editor]")) {
+      const list = editor.querySelector("[data-cors-list]");
+      const add = editor.querySelector("[data-cors-add]");
+      if (!list || !add) continue;
+      add.onclick = () => {
+        list.insertAdjacentHTML("beforeend", corsRowHtml(""));
+      };
+      editor.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof Element) || !target.closest("[data-cors-remove]")) return;
+        const row = target.closest("[data-cors-row]");
+        if (row) row.remove();
+        if (!list.querySelector("[data-cors-row]")) {
+          list.insertAdjacentHTML("beforeend", corsRowHtml(""));
+        }
+      });
+    }
+  }
+
   async function configPage(root) {
     const [current, versions, audits, settings] = await Promise.all([
       api("/admin/config/current"),
@@ -2549,9 +3118,7 @@
       "</div></div>" +
       '<div class="card"><h3>系统设置</h3>' +
       '<p class="hint">保存后需要发布配置版本才会生效。数值单位为字节或毫秒。</p>' +
-      '<textarea id="settings-json" rows="16">' +
-      esc(JSON.stringify(settings.data || {}, null, 2)) +
-      '</textarea>' +
+      settingsFormHtml(settings.data || {}) +
       '<div class="form-actions"><button class="btn primary" id="save-settings">保存设置</button></div>' +
       "</div>" +
       '<div class="card"><h3>校验问题</h3>' +
@@ -2623,15 +3190,11 @@
         .join("") +
       "</tbody></table></div>";
 
+    bindSettingsForm(root);
     $("#save-settings", root).onclick = async () => {
       let payload;
       try {
-        payload = JSON.parse($("#settings-json").value);
-      } catch {
-        notify("系统设置必须是合法 JSON", "bad");
-        return;
-      }
-      try {
+        payload = readSettingsForm(root);
         await api("/admin/settings", { method: "PUT", body: payload });
         notify("设置已保存，请发布配置以生效", "ok");
         await route();

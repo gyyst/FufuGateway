@@ -173,6 +173,30 @@ describe("Provider 预设与快速开始", () => {
     expect(body.data.steps.every((step) => step.id === "gateway_test" || step.complete)).toBe(true);
     expect(body.data.steps.find((step) => step.id === "api_key")?.action?.page).toBe("keys");
   });
+
+  it("更新 Provider 不会级联删除账户和模型", async () => {
+    const beforeResponse = await adminCall(`/admin/providers/${arkProviderId}`, "GET");
+    expect(beforeResponse.status).toBe(200);
+    const before = (await beforeResponse.json()) as {
+      data: { accounts: unknown[]; models: unknown[] };
+    };
+    expect(before.data.accounts.length).toBeGreaterThan(0);
+    expect(before.data.models.length).toBeGreaterThan(0);
+
+    const updateResponse = await adminCall(`/admin/providers/${arkProviderId}`, "PUT", {
+      priority: 100,
+      extraConfig: {},
+      customHeaders: {},
+    });
+    expect(updateResponse.status).toBe(200);
+
+    const afterResponse = await adminCall(`/admin/providers/${arkProviderId}`, "GET");
+    const after = (await afterResponse.json()) as {
+      data: { accounts: unknown[]; models: unknown[] };
+    };
+    expect(after.data.accounts).toHaveLength(before.data.accounts.length);
+    expect(after.data.models).toHaveLength(before.data.models.length);
+  });
 });
 
 describe("基础推理链路", () => {

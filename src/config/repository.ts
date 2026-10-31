@@ -579,11 +579,28 @@ export async function createProvider(db: D1Database, input: CreateProviderInput)
 export async function replaceProvider(db: D1Database, record: ProviderRecord): Promise<void> {
   await db
     .prepare(
-      `INSERT OR REPLACE INTO providers
+      `INSERT INTO providers
         (id, name, type, protocol, base_url, enabled, priority, weight, custom_headers,
          timeout_ms, first_token_timeout_ms, idle_timeout_ms, max_retries, retry_config,
          proxy_config, extra_config, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         type = excluded.type,
+         protocol = excluded.protocol,
+         base_url = excluded.base_url,
+         enabled = excluded.enabled,
+         priority = excluded.priority,
+         weight = excluded.weight,
+         custom_headers = excluded.custom_headers,
+         timeout_ms = excluded.timeout_ms,
+         first_token_timeout_ms = excluded.first_token_timeout_ms,
+         idle_timeout_ms = excluded.idle_timeout_ms,
+         max_retries = excluded.max_retries,
+         retry_config = excluded.retry_config,
+         proxy_config = excluded.proxy_config,
+         extra_config = excluded.extra_config,
+         updated_at = excluded.updated_at`,
     )
     .bind(
       record.id,
