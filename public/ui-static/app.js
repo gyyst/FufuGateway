@@ -163,29 +163,38 @@
     return provider ? provider.name : id;
   }
 
-  function activeProvider(id) {
-    const provider = state.providers.find((item) => item.id === id);
-    return provider && provider.enabled !== false ? provider : undefined;
-  }
-
-  function activeModelEntries() {
+  function allModelEntries() {
     const entries = [];
     const seen = new Set();
     for (const model of state.models) {
-      if (model.enabled === false) continue;
-      const provider = activeProvider(model.providerId);
+      const provider = state.providers.find((item) => item.id === model.providerId);
       if (!provider) continue;
       const value = provider.name + "/" + model.modelId;
       if (seen.has(value)) continue;
       seen.add(value);
-      entries.push({ value, label: provider.name + " / " + model.modelId });
+      const providerDisabled = provider.enabled === false;
+      const modelDisabled = model.enabled === false;
+      const suffix = modelDisabled
+        ? "（未启用）"
+        : providerDisabled
+          ? "（Provider 停用）"
+          : "";
+      entries.push({
+        value,
+        label: provider.name + " / " + model.modelId + suffix,
+        disabled: providerDisabled || modelDisabled,
+      });
     }
     entries.sort((a, b) => a.label.localeCompare(b.label));
     return entries;
   }
 
+  function activeModelEntries() {
+    return allModelEntries().filter((entry) => !entry.disabled);
+  }
+
   function routeTargetEntries(except) {
-    const entries = activeModelEntries().map((entry) => ({
+    const entries = allModelEntries().map((entry) => ({
       value: JSON.stringify(entry.value),
       label: "模型 · " + entry.label,
     }));
@@ -512,7 +521,7 @@
     } else if (field.type === "modelSelect") {
       const current = fieldValue(field, row, overrides) || "";
       const entries = mergeCurrentEntries(
-        activeModelEntries(),
+        allModelEntries(),
         current === "" ? [] : [current],
         "当前值 · ",
       );
@@ -1167,7 +1176,7 @@
       span: 2,
       rows: 8,
       default: [],
-      help: "先用下拉选择模型/别名/Combo/通配符并点击添加；高级节点可直接编辑 JSON。",
+      help: "先用下拉选择模型/别名/Combo/通配符并点击添加；未启用模型会标记，使用前请在模型页启用。高级节点可直接编辑 JSON。",
     },
     { name: "timeoutMs", label: "整体超时 (ms)", type: "number" },
     { name: "maxConcurrency", label: "最大并发", type: "number", min: 1 },
