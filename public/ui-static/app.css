@@ -276,6 +276,56 @@ pre {
 .issue.error { border-color: rgba(251, 113, 133, 0.4); background: rgba(251, 113, 133, 0.06); }
 .issue.warning { border-color: rgba(251, 191, 36, 0.35); background: rgba(251, 191, 36, 0.05); }
 
+.callout {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 12px 14px;
+  font-size: 13px;
+}
+.callout p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+.callout.warn { border-color: rgba(251, 191, 36, 0.4); background: rgba(251, 191, 36, 0.06); }
+.callout.ok { border-color: rgba(52, 211, 153, 0.4); background: rgba(52, 211, 153, 0.06); }
+
+.setup-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.step-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+  background: linear-gradient(180deg, var(--panel), rgba(17, 24, 35, 0.85));
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.step-card.done { border-color: rgba(52, 211, 153, 0.3); }
+.step-card.pending { border-color: rgba(251, 191, 36, 0.3); }
+.step-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.step-head h3 { margin: 0; font-size: 14px; }
+.step-card p { margin: 0; font-size: 12px; line-height: 1.55; }
+.step-card .btn { justify-self: start; }
+
+.preset-toolbar { margin-bottom: 12px; }
+.preset-list { display: grid; gap: 10px; }
+.preset-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  background: var(--panel-2);
+}
+.preset-copy { min-width: 0; }
+.preset-copy h3 { margin: 0 0 4px; font-size: 14px; }
+.preset-copy p { margin: 0 0 6px; color: var(--muted); font-size: 12px; }
+.preset-copy .help { margin-top: 4px; color: var(--muted); font-size: 11px; }
+.preset-copy .help a { color: var(--accent-2); }
+.preset-item > .btn { flex: 0 0 auto; }
+
+.connect-block .section-head h3 { margin: 0; font-size: 13px; color: var(--muted); }
+.connect-block pre { max-height: 320px; white-space: pre-wrap; word-break: break-word; }
+
 .empty { padding: 28px; text-align: center; color: var(--muted); }
 .loading { padding: 28px; text-align: center; color: var(--muted); }
 
@@ -286,5 +336,7 @@ pre {
   .grid.cols-2, .grid.cols-3, .grid.cols-4 { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid .span-2 { grid-column: span 1; }
+  .setup-grid { grid-template-columns: 1fr; }
+  .preset-item { flex-direction: column; align-items: flex-start; }
   .bar-row { grid-template-columns: 70px 1fr 80px; }
 }

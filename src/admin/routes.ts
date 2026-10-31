@@ -60,6 +60,14 @@ import {
 import { breakerHealthHandler } from "./handlers/health";
 import { getSettingsHandler, updateSettingsHandler } from "./handlers/settings";
 import {
+  listProviderPresetsHandler,
+  setupStatusHandler,
+} from "./handlers/setup";
+import {
+  gatewayTestHandler,
+  routingExplainHandler,
+} from "./handlers/diagnostics";
+import {
   getRequestHandler,
   listRequestsHandler,
   usageSummaryHandler,
@@ -147,6 +155,12 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
   app.post("/admin/config/publish", publishConfigHandler);
   app.get("/admin/config/versions", listConfigVersionsHandler);
   app.post("/admin/config/rollback", rollbackConfigHandler);
+
+  // 快速开始、预设与诊断
+  app.get("/admin/provider-presets", listProviderPresetsHandler);
+  app.get("/admin/setup/status", setupStatusHandler);
+  app.post("/admin/routing/explain", routingExplainHandler);
+  app.post("/admin/gateway/test", gatewayTestHandler);
 
   // 审计与健康
   app.get("/admin/settings", getSettingsHandler);

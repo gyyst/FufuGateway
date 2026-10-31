@@ -12,6 +12,7 @@
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
   const PAGES = [
+    ["setup", "快速开始"],
     ["overview", "概览"],
     ["providers", "Provider"],
     ["models", "模型"],
@@ -22,6 +23,8 @@
     ["users", "用户"],
     ["pricing", "价格表"],
     ["usage", "用量与请求"],
+    ["diagnostics", "路由诊断"],
+    ["connect", "客户端接入"],
     ["config", "配置与审计"],
   ];
 
@@ -259,15 +262,18 @@
     return [];
   }
 
-  function fieldValue(field, row) {
+  function fieldValue(field, row, overrides) {
+    if (overrides && Object.prototype.hasOwnProperty.call(overrides, field.name)) {
+      return overrides[field.name];
+    }
     if (!row) return field.default;
     if (typeof field.get === "function") return field.get(row);
     return row[field.name];
   }
 
-  function fieldHtml(field, row) {
+  function fieldHtml(field, row, overrides) {
     const name = "f_" + field.name;
-    const value = fieldValue(field, row);
+    const value = fieldValue(field, row, overrides);
     const span = field.span === 2 ? " span-2" : "";
     let control = "";
     if (field.type === "checkbox") {
@@ -404,12 +410,12 @@
     );
   }
 
-  function formHtml(fields, row) {
+  function formHtml(fields, row, overrides) {
     return (
       '<form id="entity-form"><div class="form-grid">' +
       fields
         .filter((field) => !(field.createOnly && row) && !(field.editOnly && !row))
-        .map((field) => fieldHtml(field, row))
+        .map((field) => fieldHtml(field, row, overrides))
         .join("") +
       '</div><div class="form-actions"><button type="button" class="btn ghost" data-cancel>取消</button><button type="submit" class="btn primary">保存</button></div></form>'
     );
@@ -452,11 +458,11 @@
     return payload;
   }
 
-  async function openEntityForm(entity, row) {
+  async function openEntityForm(entity, row, overrides) {
     await ensureLookups();
     const body = modal(
       entity.title + (row ? " · 编辑" : " · 新建"),
-      formHtml(entity.fields, row || null),
+      formHtml(entity.fields, row || null, overrides || null),
     );
     const form = $("#entity-form", body);
     $("[data-cancel]", form).onclick = closeModal;
@@ -545,10 +551,17 @@
       root.innerHTML =
         '<div class="section-head"><h2>' +
         esc(entity.title) +
-        '</h2><div class="actions"><button class="btn primary" data-new>新建</button></div></div>' +
+        '</h2><div class="actions">' +
+        (entity.presetPicker
+          ? '<button class="btn" data-from-preset>从预设添加</button>'
+          : "") +
+        '<button class="btn primary" data-new>新建</button></div></div>' +
         (entity.note ? '<p class="hint">' + esc(entity.note) + "</p>" : "") +
         tableHtml(entity, rows);
       $("[data-new]", root).onclick = () => openEntityForm(entity, null);
+      if (entity.presetPicker) {
+        $("[data-from-preset]", root).onclick = openProviderPresetPicker;
+      }
       $$("[data-action]", root).forEach((button) => {
         button.onclick = () => {
           const row = rows.find((item) => item.id === button.dataset.id);
@@ -728,6 +741,8 @@
       title: "Provider",
       endpoint: "/admin/providers",
       fields: providerFields,
+      presetPicker: true,
+      note: "可以手工新建，也可以从预设添加。添加 Provider 后还需要账户、模型并发布配置。",
       columns: [
         { label: "名称", key: "name" },
         { label: "类型", key: "type", mono: true },
@@ -738,6 +753,16 @@
         { label: "优先级", key: "priority" },
       ],
       actions: [
+        {
+          key: "setup",
+          label: "设置",
+          run: (row) => openProviderSetup(row),
+        },
+        {
+          key: "models",
+          label: "模型",
+          run: (row) => openProviderModels(row),
+        },
         {
           key: "accounts",
           label: "账户",
@@ -797,6 +822,24 @@
           render: (row) => {
             const pricing = row.pricing || {};
             return esc(fmtUsd(pricing.inputPrice) + " / " + fmtUsd(pricing.outputPrice));
+          },
+        },
+      ],
+      actions: [
+        {
+          key: "toggle",
+          label: "启用/停用",
+          run: async (row) => {
+            try {
+              await api("/admin/models/" + row.id, {
+                method: "PUT",
+                body: { enabled: row.enabled !== true },
+              });
+              notify(row.enabled ? "模型已停用" : "模型已启用", "ok");
+              await route();
+            } catch (error) {
+              notify(error.message, "bad");
+            }
           },
         },
       ],
@@ -1012,6 +1055,7 @@
         });
         closeModal();
         notify("账户已添加", "ok");
+        await route();
         await openAccounts(provider);
       } catch (error) {
         notify(error.message, "bad");
@@ -1025,6 +1069,7 @@
             method: "PUT",
             body: { enabled: button.dataset.enabled !== "true" },
           });
+          await route();
           await openAccounts(provider);
         } catch (error) {
           notify(error.message, "bad");
@@ -1041,6 +1086,7 @@
             body: { apiKey },
           });
           notify("密钥已更新", "ok");
+          await route();
           await openAccounts(provider);
         } catch (error) {
           notify(error.message, "bad");
@@ -1054,12 +1100,288 @@
           await api("/admin/providers/" + provider.id + "/accounts/" + button.dataset.delete, {
             method: "DELETE",
           });
+          await route();
           await openAccounts(provider);
         } catch (error) {
           notify(error.message, "bad");
         }
       };
     });
+  }
+
+  // ---------------------------------------------------------------------
+  // Provider 预设、设置面板与模型
+  // ---------------------------------------------------------------------
+
+  async function openProviderPresetPicker() {
+    let presets = [];
+    try {
+      const response = await api("/admin/provider-presets");
+      presets = response.data || [];
+    } catch (error) {
+      notify(error.message, "bad");
+      return;
+    }
+    const body = modal(
+      "从预设添加 Provider",
+      '<div class="preset-toolbar"><input id="preset-search" placeholder="搜索 Provider 名称或说明"></div>' +
+        '<div id="preset-list" class="preset-list"></div>',
+    );
+    const list = $("#preset-list", body);
+    const render = () => {
+      const query = ($("#preset-search", body).value || "").trim().toLowerCase();
+      const filtered = presets.filter((preset) => {
+        if (!query) return true;
+        return (
+          String(preset.label || "").toLowerCase().includes(query) ||
+          String(preset.description || "").toLowerCase().includes(query) ||
+          String(preset.id || "").toLowerCase().includes(query)
+        );
+      });
+      if (!filtered.length) {
+        list.innerHTML = '<div class="empty">没有匹配的预设</div>';
+        return;
+      }
+      list.innerHTML = filtered
+        .map((preset) => {
+          return (
+            '<div class="preset-item"><div class="preset-copy"><h3>' +
+            esc(preset.label) +
+            "</h3><p>" +
+            esc(preset.description) +
+            '</p><div class="mono tight">' +
+            esc(preset.type + " · " + preset.protocol + " · " + (preset.baseUrl || "自定义 Base URL")) +
+            "</div>" +
+            (preset.notes ? '<div class="help">' + esc(preset.notes) + "</div>" : "") +
+            (preset.docsUrl
+              ? '<div class="help"><a href="' +
+                esc(preset.docsUrl) +
+                '" target="_blank" rel="noopener noreferrer">厂商文档</a></div>'
+              : "") +
+            '</div><button class="btn primary small-btn" data-preset="' +
+            esc(preset.id) +
+            '">使用</button></div>'
+          );
+        })
+        .join("");
+      $$("[data-preset]", list).forEach((button) => {
+        button.onclick = () => {
+          const preset = presets.find((item) => item.id === button.dataset.preset);
+          if (!preset) return;
+          closeModal();
+          openEntityForm(entities.providers, null, {
+            name: preset.suggestedName,
+            type: preset.type,
+            protocol: preset.protocol,
+            baseUrl: preset.baseUrl,
+            extraConfig: preset.extraConfig || {},
+            enabled: true,
+          });
+        };
+      });
+    };
+    $("#preset-search", body).oninput = render;
+    render();
+  }
+
+  async function openProviderSetup(provider) {
+    let detail;
+    try {
+      const response = await api("/admin/providers/" + provider.id);
+      detail = response.data;
+    } catch (error) {
+      notify(error.message, "bad");
+      return;
+    }
+    const accounts = detail.accounts || [];
+    const models = detail.models || [];
+    const enabledModels = models.filter((model) => model.enabled).length;
+    const body = modal(
+      "设置 · " + provider.name,
+      '<div class="grid cols-3">' +
+        '<div class="card"><h3>账户</h3><div class="metric">' +
+        esc(accounts.length) +
+        " <small>个</small></div></div>" +
+        '<div class="card"><h3>模型</h3><div class="metric">' +
+        esc(models.length) +
+        " <small>个 / 启用 " +
+        esc(enabledModels) +
+        "</small></div></div>" +
+        '<div class="card"><h3>凭据</h3><div class="metric" style="font-size:16px">' +
+        esc(accounts.length > 0 ? "已配置" : "未配置") +
+        "</div></div>" +
+        "</div>" +
+        (accounts.length === 0
+          ? '<div class="callout warn"><strong>先添加账户</strong><p>Provider 没有账户时无法同步模型或发起请求。建议使用 Worker Secret 引用，避免在页面保存明文密钥。</p></div>'
+          : "") +
+        (models.length === 0
+          ? '<div class="callout warn"><strong>还没有模型</strong><p>同步上游模型或手动添加模型；同步结果默认禁用，能力必须人工确认。</p></div>'
+          : "") +
+        '<div class="form-actions">' +
+        '<button class="btn" id="setup-accounts">管理账户</button>' +
+        '<button class="btn" id="setup-sync">同步模型</button>' +
+        '<button class="btn" id="setup-models">查看模型</button>' +
+        '<button class="btn" id="setup-test">模型列表测试</button>' +
+        '<button class="btn" id="setup-chat-test">Chat 自测</button>' +
+        '<button class="btn primary" id="setup-publish">去发布配置</button>' +
+        "</div>" +
+        '<p class="hint">完成账户和模型后，请在「配置与审计」发布配置版本；未发布时推理入口会回退到 D1 草稿。</p>',
+    );
+    $("#setup-accounts", body).onclick = () => {
+      closeModal();
+      openAccounts(provider);
+    };
+    $("#setup-sync", body).onclick = async () => {
+      if (!confirm("从上游同步模型？同步结果默认禁用，需要人工确认能力。")) return;
+      try {
+        const result = await api("/admin/providers/" + provider.id + "/sync-models", {
+          method: "POST",
+        });
+        notify("同步完成：新增 " + result.created + "，跳过 " + result.skipped, "ok");
+        closeModal();
+        await route();
+      } catch (error) {
+        notify(error.message, "bad");
+      }
+    };
+    $("#setup-models", body).onclick = () => openProviderModels(provider);
+    $("#setup-test", body).onclick = async () => {
+      try {
+        const result = await api("/admin/providers/" + provider.id + "/test", { method: "POST" });
+        modal(
+          "Provider 模型列表测试 · " + provider.name,
+          '<pre class="mono">' + esc(JSON.stringify(result, null, 2)) + "</pre>",
+        );
+      } catch (error) {
+        notify(error.message, "bad");
+      }
+    };
+    $("#setup-chat-test", body).onclick = async () => {
+      const enabled = models.filter((model) => model.enabled);
+      const fallback = enabled[0] || models[0];
+      const modelId = prompt(
+        "输入模型 ID 做 Chat 自测（会产生真实上游费用）",
+        fallback ? fallback.modelId : "",
+      );
+      if (!modelId) return;
+      if (!confirm("Chat 自测会发起真实上游请求并可能产生费用，继续？")) return;
+      try {
+        const result = await api("/admin/gateway/test", {
+          method: "POST",
+          body: {
+            model: provider.name + "/" + modelId,
+            prompt: "Reply with OK.",
+            maxOutputTokens: 16,
+          },
+        });
+        modal(
+          "Chat 自测 · " + provider.name,
+          '<pre class="mono">' + esc(JSON.stringify(result, null, 2)) + "</pre>",
+        );
+      } catch (error) {
+        notify(error.message, "bad");
+      }
+    };
+    $("#setup-publish", body).onclick = () => {
+      closeModal();
+      location.hash = "#/config";
+    };
+  }
+
+  async function openProviderModels(provider) {
+    let models = [];
+    try {
+      const response = await api("/admin/models?providerId=" + encodeURIComponent(provider.id));
+      models = response.data || [];
+    } catch (error) {
+      notify(error.message, "bad");
+      return;
+    }
+    const rows = models.length
+      ? models
+          .map((model) => {
+            const capabilities = model.capabilities || {};
+            const flags = [];
+            if (capabilities.supportsStream) flags.push("stream");
+            if (capabilities.supportsTools) flags.push("tools");
+            if (capabilities.supportsVision) flags.push("vision");
+            if (capabilities.supportsReasoning) flags.push("reasoning");
+            return (
+              '<tr><td class="mono">' +
+              esc(model.modelId) +
+              '</td><td class="mono">' +
+              esc(model.upstreamModelId) +
+              "</td><td>" +
+              badge(model.enabled) +
+              '</td><td class="mono">' +
+              esc(flags.join(", ") || "-") +
+              '</td><td><div class="row-actions">' +
+              '<button class="btn small-btn" data-model-edit="' +
+              esc(model.id) +
+              '">编辑并确认能力</button>' +
+              '<button class="btn small-btn" data-model-toggle="' +
+              esc(model.id) +
+              '">' +
+              (model.enabled ? "停用" : "启用") +
+              "</button></div></td></tr>"
+            );
+          })
+          .join("")
+      : '<tr><td colspan="5" class="empty">暂无模型</td></tr>';
+    const body = modal(
+      "模型 · " + provider.name,
+      '<p class="hint">同步模型的初始能力全部为 false，必须编辑确认后再启用。这里不会按模型名称猜测能力。</p>' +
+        '<div class="table-wrap"><table><thead><tr><th>模型 ID</th><th>上游模型</th><th>状态</th><th>能力</th><th>操作</th></tr></thead><tbody>' +
+        rows +
+        "</tbody></table></div>" +
+        '<div class="form-actions"><button class="btn" id="models-sync">同步模型</button><button class="btn primary" id="models-add">手动添加模型</button></div>',
+    );
+    $$("[data-model-edit]", body).forEach((button) => {
+      button.onclick = () => {
+        const model = models.find((item) => item.id === button.dataset.modelEdit);
+        if (model) openEntityForm(entities.models, model);
+      };
+    });
+    $$("[data-model-toggle]", body).forEach((button) => {
+      button.onclick = async () => {
+        const model = models.find((item) => item.id === button.dataset.modelToggle);
+        if (!model) return;
+        if (!model.enabled && !confirm("启用该模型？请确认已经在编辑表单中确认能力。")) return;
+        try {
+          await api("/admin/models/" + model.id, {
+            method: "PUT",
+            body: { enabled: model.enabled !== true },
+          });
+          closeModal();
+          await route();
+          await openProviderModels(provider);
+        } catch (error) {
+          notify(error.message, "bad");
+        }
+      };
+    });
+    $("#models-sync", body).onclick = async () => {
+      if (!confirm("从上游同步模型？同步结果默认禁用，需要人工确认能力。")) return;
+      try {
+        const result = await api("/admin/providers/" + provider.id + "/sync-models", {
+          method: "POST",
+        });
+        notify("同步完成：新增 " + result.created + "，跳过 " + result.skipped, "ok");
+        closeModal();
+        await route();
+        await openProviderModels(provider);
+      } catch (error) {
+        notify(error.message, "bad");
+      }
+    };
+    $("#models-add", body).onclick = () => {
+      closeModal();
+      openEntityForm(entities.models, null, {
+        providerId: provider.id,
+        supportsStream: true,
+        enabled: true,
+      });
+    };
   }
 
   // ---------------------------------------------------------------------
@@ -1429,6 +1751,264 @@
   }
 
   // ---------------------------------------------------------------------
+  // 快速开始、路由诊断与客户端接入
+  // ---------------------------------------------------------------------
+
+  async function setupPage(root) {
+    const response = await api("/admin/setup/status");
+    const data = response.data || {};
+    const steps = data.steps || [];
+    const issues = (data.config && data.config.issues) || [];
+    const lastTest = data.lastGatewayTest;
+    root.innerHTML =
+      '<div class="section-head"><h2>快速开始</h2><div class="actions">' +
+      '<button class="btn" id="setup-refresh">刷新</button>' +
+      (data.config && data.config.pendingChanges
+        ? '<button class="btn primary" id="setup-publish">发布配置</button>'
+        : "") +
+      "</div></div>" +
+      '<div class="callout ' +
+      (data.readyForInference ? "ok" : "warn") +
+      '"><strong>' +
+      (data.readyForInference ? "网关已具备推理条件。" : "还需要完成初始化步骤。") +
+      '</strong> <span class="muted">按清单完成 Provider、账户、模型、发布和 API Key。</span></div>' +
+      cards([
+        {
+          label: "Provider",
+          value: String((data.counts && data.counts.providers) || 0),
+          hint: "有账户 " + String((data.counts && data.counts.providersWithAccounts) || 0),
+        },
+        {
+          label: "启用模型",
+          value: String((data.counts && data.counts.enabledModels) || 0),
+          hint: "共 " + String((data.counts && data.counts.models) || 0) + " 个",
+        },
+        {
+          label: "配置版本",
+          value: data.config && data.config.activeVersion !== null ? "v" + data.config.activeVersion : "未发布",
+          hint: data.config && data.config.pendingChanges ? "有未发布变更" : "已同步",
+        },
+        {
+          label: "活跃 API Key",
+          value: String((data.counts && data.counts.activeApiKeys) || 0),
+          hint: lastTest ? (lastTest.success ? "最近自测成功" : "最近自测失败") : "尚未自测",
+        },
+      ]) +
+      '<div class="setup-grid">' +
+      steps
+        .map((step) => {
+          const action = step.action
+            ? '<a class="btn small-btn" href="#/' + esc(step.action.page) + '">前往处理</a>'
+            : "";
+          return (
+            '<div class="step-card ' +
+            (step.complete ? "done" : "pending") +
+            '"><div class="step-head"><h3>' +
+            esc(step.label) +
+            "</h3>" +
+            badge(step.complete, step.complete ? "完成" : "待完成") +
+            '</div><p class="muted">' +
+            esc(step.detail) +
+            "</p>" +
+            action +
+            "</div>"
+          );
+        })
+        .join("") +
+      "</div>" +
+      (issues.length
+        ? '<div class="card"><h3>配置提示</h3><div class="issue-list">' +
+          issues
+            .map((issue) => {
+              return (
+                '<div class="issue ' +
+                (issue.severity === "error" ? "error" : "warning") +
+                '"><strong>' +
+                esc(issue.code) +
+                "</strong> · " +
+                esc(issue.message) +
+                (issue.entityId ? ' <span class="mono">' + esc(issue.entityId) + "</span>" : "") +
+                "</div>"
+              );
+            })
+            .join("") +
+          "</div></div>"
+        : "");
+    $("#setup-refresh", root).onclick = () => route();
+    if ($("#setup-publish", root)) {
+      $("#setup-publish", root).onclick = () => {
+        location.hash = "#/config";
+      };
+    }
+  }
+
+  async function diagnosticsPage(root) {
+    let models = [];
+    try {
+      const response = await api("/admin/models");
+      models = response.data || [];
+    } catch {
+      models = [];
+    }
+    root.innerHTML =
+      '<div class="section-head"><h2>路由诊断</h2></div>' +
+      '<div class="card"><div class="form-grid">' +
+      '<label class="field"><span>模型名</span><input id="diag-model" list="diag-models" placeholder="provider/model 或原生模型"></label>' +
+      '<label class="field"><span>测试提示词</span><input id="diag-prompt" value="Reply with OK."></label>' +
+      '<label class="field"><span>最大输出 Token</span><input id="diag-max" type="number" min="1" max="32" value="16"></label>' +
+      '</div><datalist id="diag-models">' +
+      models
+        .filter((model) => model.enabled)
+        .map((model) => '<option value="' + esc(model.modelId) + '"></option>')
+        .join("") +
+      '</datalist><div class="form-actions">' +
+      '<button class="btn" id="diag-explain">解析路由</button>' +
+      '<button class="btn primary" id="diag-test">运行网关自测</button>' +
+      '</div><p class="hint">网关自测会发起一次真实上游请求，可能产生费用；最多 32 个输出 Token。</p></div>' +
+      '<div id="diag-result"></div>';
+
+    const show = (title, data) => {
+      const ok = data && data.ok === true;
+      $("#diag-result").innerHTML =
+        '<div class="card"><h3>' +
+        esc(title) +
+        " " +
+        badge(ok, ok ? "成功" : "失败") +
+        '</h3><pre class="mono">' +
+        esc(JSON.stringify(data, null, 2)) +
+        "</pre></div>";
+    };
+    $("#diag-explain", root).onclick = async () => {
+      const model = $("#diag-model", root).value.trim();
+      if (!model) {
+        notify("请输入模型名", "bad");
+        return;
+      }
+      try {
+        const response = await api("/admin/routing/explain", {
+          method: "POST",
+          body: { model },
+        });
+        show("路由解析", response.data || response);
+      } catch (error) {
+        notify(error.message, "bad");
+      }
+    };
+    $("#diag-test", root).onclick = async () => {
+      const model = $("#diag-model", root).value.trim();
+      if (!model) {
+        notify("请输入模型名", "bad");
+        return;
+      }
+      if (!confirm("自测会发起真实上游请求并可能产生费用，继续？")) return;
+      const prompt = $("#diag-prompt", root).value.trim() || "Reply with OK.";
+      const maxOutputTokens = Number($("#diag-max", root).value || 16);
+      try {
+        const response = await api("/admin/gateway/test", {
+          method: "POST",
+          body: { model, prompt, maxOutputTokens },
+        });
+        show("网关自测", response.data || response);
+      } catch (error) {
+        notify(error.message, "bad");
+      }
+    };
+  }
+
+  function connectBlock(id, title, text) {
+    return (
+      '<div class="card connect-block"><div class="section-head"><h3>' +
+      esc(title) +
+      '</h3><button class="btn small-btn" data-copy="' +
+      esc(id) +
+      '">复制</button></div><pre class="mono" id="' +
+      esc(id) +
+      '">' +
+      esc(text) +
+      "</pre></div>"
+    );
+  }
+
+  function connectPage(root) {
+    const origin = location.origin;
+    const openaiBase = origin + "/v1";
+    const envText = [
+      "# OpenAI Chat / Responses",
+      "OPENAI_BASE_URL=" + openaiBase,
+      "OPENAI_API_KEY=fufu_sk_...",
+      "",
+      "# Anthropic Messages",
+      "ANTHROPIC_BASE_URL=" + origin,
+      "ANTHROPIC_API_KEY=fufu_sk_...",
+      "",
+      "# Google Gemini",
+      "GOOGLE_GEMINI_BASE_URL=" + origin,
+      "GEMINI_API_KEY=fufu_sk_...",
+    ].join("\n");
+    const curlText = [
+      'curl "' + openaiBase + '/chat/completions" \\',
+      '  -H "Authorization: Bearer $FUFU_API_KEY" \\',
+      '  -H "Content-Type: application/json" \\',
+      '  -d \'{"model":"provider/model","messages":[{"role":"user","content":"Hello"}]}\'',
+    ].join("\n");
+    const pythonText = [
+      "from openai import OpenAI",
+      "",
+      "client = OpenAI(",
+      '    base_url="' + openaiBase + '",',
+      '    api_key="fufu_sk_...",',
+      ")",
+      "response = client.chat.completions.create(",
+      '    model="provider/model",',
+      '    messages=[{"role": "user", "content": "Hello"}],',
+      ")",
+      "print(response.choices[0].message.content)",
+    ].join("\n");
+    const agentText = [
+      "# Claude Code",
+      "export ANTHROPIC_BASE_URL=\"" + origin + "\"",
+      'export ANTHROPIC_AUTH_TOKEN="fufu_sk_..."',
+      "",
+      "# Codex",
+      "export OPENAI_BASE_URL=\"" + openaiBase + "\"",
+      'export OPENAI_API_KEY="fufu_sk_..."',
+      "",
+      "# Gemini CLI",
+      "export GOOGLE_GEMINI_BASE_URL=\"" + origin + "\"",
+      'export GEMINI_API_KEY="fufu_sk_..."',
+    ].join("\n");
+
+    root.innerHTML =
+      '<div class="section-head"><h2>客户端接入</h2></div>' +
+      '<div class="callout"><strong>Base URL</strong><p class="mono">OpenAI Chat/Responses: ' +
+      esc(openaiBase) +
+      "<br>Anthropic: " +
+      esc(origin) +
+      "<br>Gemini: " +
+      esc(origin) +
+      '（客户端自行追加 /v1beta）</p></div>' +
+      '<p class="hint">API Key 只在创建或轮换时显示一次。请先到 <a href="#/keys">API Key</a> 页面创建，不要把真实 Key 写入仓库或截图。</p>' +
+      connectBlock("connect-env", "环境变量", envText) +
+      connectBlock("connect-curl", "curl · OpenAI Chat", curlText) +
+      connectBlock("connect-python", "OpenAI Python SDK", pythonText) +
+      connectBlock("connect-agent", "编码代理", agentText) +
+      '<div class="callout warn"><strong>接入提示</strong><p>不同代理的环境变量名称可能不同；以代理文档为准。网关同时支持 Bearer、x-api-key 和 x-goog-api-key 认证。</p></div>';
+
+    $$("[data-copy]", root).forEach((button) => {
+      button.onclick = async () => {
+        const target = document.getElementById(button.dataset.copy);
+        if (!target) return;
+        try {
+          await navigator.clipboard.writeText(target.textContent || "");
+          notify("已复制", "ok");
+        } catch {
+          notify("复制失败，请手动选择", "bad");
+        }
+      };
+    });
+  }
+
+  // ---------------------------------------------------------------------
   // 配置与审计
   // ---------------------------------------------------------------------
 
@@ -1460,6 +2040,9 @@
         },
         { label: "版本总数", value: String((versions.data || []).length) },
       ]) +
+      (status.pendingChanges
+        ? '<div class="callout warn"><strong>有未发布变更</strong><p>Provider、账户、模型或系统设置已修改，请发布配置版本后推理入口才会稳定使用新配置。</p></div>'
+        : "") +
       '<div class="section-head"><h2>配置操作</h2><div class="actions">' +
       '<button class="btn" id="validate-config">校验配置</button>' +
       '<button class="btn primary" id="publish-config">发布配置</button>' +
@@ -1605,6 +2188,7 @@
   // ---------------------------------------------------------------------
 
   const renderers = {
+    setup: setupPage,
     overview: overviewPage,
     providers: crudPage(entities.providers),
     models: crudPage(entities.models),
@@ -1615,6 +2199,8 @@
     users: crudPage(entities.users),
     pricing: crudPage(entities.pricing),
     usage: usagePage,
+    diagnostics: diagnosticsPage,
+    connect: connectPage,
     config: configPage,
   };
 

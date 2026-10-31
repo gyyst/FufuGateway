@@ -136,12 +136,15 @@ npm run deploy
 ## 7. 首次配置流程
 
 1. 访问 `https://<worker-domain>/ui`，使用 `ADMIN_TOKEN` 登录。
-2. 创建用户与 API Key。
-3. 创建 Provider 与账户。
-4. 创建模型并确认能力与价格。
-5. 配置 Alias / 通配符 / Combo。
-6. 「配置与审计」→ 发布配置。
-7. 使用客户端 SDK 调用推理入口。
+2. 打开「快速开始」，按清单完成 Secrets、Provider、账户、模型、发布和 API Key。
+3. 「Provider」→「从预设添加」，选择火山方舟、华为云 MaaS、OpenAI、Anthropic、Gemini、DeepSeek、Kimi、GLM、Qwen、OpenRouter 等预设，或填写自定义兼容端点。
+4. 添加账户。生产环境优先使用 Worker Secret 的 `secretRef`，避免通过页面保存明文密钥。
+5. 同步上游模型或手动添加模型。同步结果默认禁用，必须在模型编辑中确认能力后启用。
+6. 创建用户与 API Key。
+7. 配置 Alias / 通配符 / Combo（可选）。
+8. 「配置与审计」→ 发布配置。
+9. 「路由诊断」输入模型并解析路由；确认账户存在后运行网关自测。自测会产生真实上游费用，输出最多 32 Token。
+10. 「客户端接入」复制 Base URL、环境变量或 SDK 示例。
 
 首次发布前，网关在没有 KV 当前版本时会回退到 D1 数据（内存缓存 60 秒），但仍然建议显式发布。
 
@@ -211,6 +214,10 @@ npm run deploy
 | Worker name mismatch 警告 | `wrangler.jsonc` 的 `name` 与 Cloudflare 项目不一致；当前配置为 `fufugateway`，修改 Dashboard 项目名或同步配置 |
 | 首次部署后接口 500、表不存在 | D1 迁移未执行；运行 `npm run db:migrate:remote` |
 | 推理 401 | Key 被禁用/过期/轮换后旧 Key |
+| Provider 测试返回 `PROVIDER_NO_ACCOUNT` | 先在 Provider 的「账户」面板添加上游账户 |
+| Provider 同步模型 404/405 | 上游没有兼容的 `/models` 端点；手动添加模型，或改用 `/admin/gateway/test` 做 Chat 测试 |
+| 模型存在但路由不到 | 模型未启用、Provider 被禁用、存在同名歧义，或配置未发布；用「路由诊断」查看 |
+| 网关自测失败 | 查看返回错误码：401/403 检查账户凭据，404 检查 Base URL/模型 ID，503 检查账户/熔断，504 检查超时 |
 | 推理 503 `PROVIDER_UNAVAILABLE` | 无可用账户、账户冷却或熔断打开 |
 | 模型路由 409 | 同名模型存在于多个 Provider，使用前缀或 Alias |
 | 配置发布 400 | 查看 `/admin/config/validate` 的问题列表 |

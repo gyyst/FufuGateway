@@ -2,6 +2,19 @@
 
 Provider 表示一个独立的上游服务。一个 Provider 可以包含多个模型与多个账户（API Key）。
 
+## 0. Provider 预设
+
+管理台「Provider → 从预设添加」会调用 `GET /admin/provider-presets`，预填名称、类型、协议、Base URL 和认证扩展配置。当前预设包括：
+
+- 火山方舟（OpenAI 兼容 / Anthropic 兼容）
+- 华为云 MaaS（OpenAI 兼容）
+- OpenAI、Anthropic、Google Gemini
+- DeepSeek、Moonshot Kimi、智谱 GLM、阿里云百炼/Qwen
+- OpenRouter、Groq、Mistral、xAI、Together、Fireworks、SiliconFlow
+- 自定义 OpenAI 兼容 / Anthropic 兼容端点
+
+预设只预填表单，不会自动创建账户或模型，也不会推断模型能力。预设 Base URL 可以修改，并应以厂商文档为准。
+
 ## 1. 字段
 
 | 字段 | 说明 |
@@ -36,10 +49,20 @@ Provider 表示一个独立的上游服务。一个 Provider 可以包含多个�
 |------|--------------|----------|
 | OpenAI Chat | `https://api.openai.com/v1` | `/v1/chat/completions` |
 | OpenAI Responses | `https://api.openai.com/v1` | `/v1/responses` |
+| 火山方舟 OpenAI 兼容 | `https://ark.cn-beijing.volces.com/api/v3` | `/api/v3/chat/completions` |
+| 华为云 MaaS OpenAI 兼容 | `https://api.modelarts-maas.com/openai/v1` | `/openai/v1/chat/completions` |
+| 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4` | `/api/paas/v4/chat/completions` |
 | Anthropic | `https://api.anthropic.com` | `/v1/messages` |
 | Gemini | `https://generativelanguage.googleapis.com` | `/v1beta/models/{model}:generateContent` |
 
-如果 baseUrl 已经包含 `/v1` 或 `/v1beta`，不会重复添加。
+网关识别路径末尾的版本段（`/v1`、`/v2`、`/v3`、`/v4` 等），不会重复追加版本。例如：
+
+- `.../api/v3` → `.../api/v3/chat/completions`
+- `.../openai/v1` → `.../openai/v1/chat/completions`
+- `.../compatible-mode/v1` → `.../compatible-mode/v1/chat/completions`
+- 不以版本段结尾的 Base URL 会追加 `/v1`。
+
+模型列表端点使用同一规则：`.../api/v3/models`、`.../openai/v1/models`、`.../v1/models`。
 
 完全自定义路径：
 
@@ -169,9 +192,58 @@ CUSTOM 可通过 `extraConfig` 覆盖：
 
 ## 8. 连通性测试
 
-`POST /admin/providers/:id/test` 使用第一个可用账户拉取模型列表，返回延迟、模型数与样例。失败时返回脱敏错误码与消息。
+`POST /admin/providers/:id/test` 使用第一个可用账户拉取模型列表，返回延迟、模型数与样例。失败时返回脱敏错误码与消息：
+
+- `PROVIDER_NO_ACCOUNT`：Provider 还没有账户，先添加账户。
+- 401/403：认证失败，检查账户 API Key 或 `secretRef`。
+- 404/405：上游不提供兼容的模型列表端点，请手动添加模型，或使用 `/admin/gateway/test` 做 Chat 测试。
+- 网络/超时：检查 Base URL、DNS、网络和超时配置。
+
+模型列表可用不代表 Chat 可用。完整链路测试请使用管理台「路由诊断」中的「运行网关自测」，或调用 `POST /admin/gateway/test`。
 
 ## 9. 常见 Provider 示例
+
+### 火山方舟（OpenAI 兼容）
+
+```json
+{
+  "name": "volcengine-ark",
+  "type": "OPENAI_COMPATIBLE",
+  "protocol": "openai-chat",
+  "baseUrl": "https://ark.cn-beijing.volces.com/api/v3"
+}
+```
+
+模型 ID 使用方舟模型 ID 或推理接入点 ID。Base URL 不要漏掉 `/api/v3`。
+
+### 火山方舟（Anthropic 兼容）
+
+```json
+{
+  "name": "volcengine-ark-anthropic",
+  "type": "CUSTOM",
+  "protocol": "anthropic",
+  "baseUrl": "https://ark.cn-beijing.volces.com/api/compatible",
+  "extraConfig": {
+    "authMode": "bearer"
+  }
+}
+```
+
+Anthropic 兼容 Base URL 是 `/api/compatible`，与 OpenAI 兼容的 `/api/v3` 不同。网关会追加 `/v1/messages`，并发送 `anthropic-version`。
+
+### 华为云 MaaS（OpenAI 兼容）
+
+```json
+{
+  "name": "huawei-maas",
+  "type": "OPENAI_COMPATIBLE",
+  "protocol": "openai-chat",
+  "baseUrl": "https://api.modelarts-maas.com/openai/v1"
+}
+```
+
+华为云 MaaS 的 OpenAI 兼容接口存在区域限制，Base URL 可能因区域不同；请以控制台和厂商文档为准。若使用 `/v2` 路径，直接填写到 Base URL 中，网关不会重复追加 `/v1`。
 
 ### OpenAI
 

@@ -102,7 +102,7 @@ Gemini 模型目录与单个模型查询。
 | GET | `/admin/providers/:id` | 详情（含账户与模型） |
 | PUT | `/admin/providers/:id` | 更新 |
 | DELETE | `/admin/providers/:id` | 删除（级联账户/模型/价格） |
-| POST | `/admin/providers/:id/test` | 拉取上游模型列表验证连通性 |
+| POST | `/admin/providers/:id/test` | 拉取上游模型列表验证连通性；无账户返回 `PROVIDER_NO_ACCOUNT` |
 | POST | `/admin/providers/:id/sync-models` | 同步上游模型（默认禁用，需人工确认能力） |
 | GET | `/admin/providers/:id/accounts` | 账户列表 |
 | POST | `/admin/providers/:id/accounts` | 添加账户（`apiKey` 或 `secretRef` 二选一） |
@@ -249,6 +249,187 @@ Gemini 模型目录与单个模型查询。
 
 - `GET /ui`、`GET /ui/`：零构建单页管理界面。
 - 静态资源：`/ui-static/app.js`、`/ui-static/app.css`。
+
+### 3.11 快速开始、预设与诊断
+
+#### GET /admin/provider-presets
+
+返回服务端静态 Provider 预设，供管理台预填表单。不包含密钥。
+
+```json
+{
+  "data": [
+    {
+      "id": "volcengine-ark-openai",
+      "label": "火山方舟（OpenAI 兼容）",
+      "suggestedName": "volcengine-ark",
+      "description": "火山引擎方舟数据面 API，兼容 OpenAI Chat Completions。",
+      "type": "OPENAI_COMPATIBLE",
+      "protocol": "openai-chat",
+      "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+      "docsUrl": "https://ark.volcengine.com/region:cn-beijing/docs/base-url-and-authentication",
+      "notes": "模型 ID 使用方舟模型 ID 或推理接入点 ID；Base URL 不要漏掉 /api/v3。"
+    }
+  ]
+}
+```
+
+#### GET /admin/setup/status
+
+返回初始化清单、资源计数、配置状态和最近一次网关自测。Secrets 只返回布尔值。
+
+```json
+{
+  "data": {
+    "readyForInference": false,
+    "secrets": {
+      "adminToken": true,
+      "apiKeyPepper": true,
+      "encryptionKey": true
+    },
+    "counts": {
+      "providers": 1,
+      "providersWithAccounts": 0,
+      "providersWithModels": 0,
+      "models": 0,
+      "enabledModels": 0,
+      "activeApiKeys": 0
+    },
+    "config": {
+      "activeVersion": null,
+      "pendingChanges": true,
+      "valid": true,
+      "issues": [
+        {
+          "severity": "warning",
+          "code": "PROVIDER_NO_ACCOUNT",
+          "message": "Provider \"huawei\" has no accounts"
+        }
+      ]
+    },
+    "lastGatewayTest": null,
+    "steps": [
+      {
+        "id": "provider",
+        "label": "添加 Provider",
+        "complete": true,
+        "detail": "已有 1 个 Provider。",
+        "action": { "page": "providers" }
+      }
+    ]
+  }
+}
+```
+
+`action.page` 对应管理台 Hash 路由：`providers`、`models`、`config`、`keys`、`diagnostics`。
+
+#### POST /admin/routing/explain
+
+只解析路由，不请求上游。
+
+```json
+{ "model": "volcengine-ark/ark-chat" }
+```
+
+返回命中类型、trace 和解析后的目标：
+
+```json
+{
+  "data": {
+    "ok": true,
+    "requestedModel": "volcengine-ark/ark-chat",
+    "configVersion": 3,
+    "match": { "type": "provider_prefix", "provider": "volcengine-ark", "model": "ark-chat" },
+    "trace": ["provider-prefix:volcengine-ark"],
+    "plan": {
+      "kind": "models",
+      "name": "route:fallback",
+      "strategy": "fallback",
+      "nodes": [
+        {
+          "kind": "model",
+          "target": {
+            "providerId": "prv_...",
+            "providerName": "volcengine-ark",
+            "modelId": "ark-chat",
+            "upstreamModelId": "doubao-...",
+            "providerEnabled": true,
+            "hasEnabledAccount": true,
+            "weight": 1,
+            "priority": 100
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+路由不存在或配置非法时返回 HTTP 200 和 `data.ok=false`，便于管理台展示诊断信息。
+
+#### POST /admin/gateway/test
+
+执行一次最小非流式请求，复用真实路由、账户选择、URL 拼接、认证和协议转换。
+
+```json
+{
+  "model": "volcengine-ark/ark-chat",
+  "prompt": "Reply with OK.",
+  "maxOutputTokens": 16
+}
+```
+
+限制：
+
+- `prompt` 最长 2000 字符。
+- `maxOutputTokens` 为 1–32，默认 16。
+- 只允许管理员调用。
+- 会发起真实上游请求并可能产生费用。
+- 不写入用户配额/Usage；写入审计日志 `gateway.test.success` 或 `gateway.test.failure`，不记录 prompt、回复或密钥。
+
+成功响应：
+
+```json
+{
+  "data": {
+    "ok": true,
+    "requestedModel": "volcengine-ark/ark-chat",
+    "provider": "volcengine-ark",
+    "accountId": "acc_...",
+    "modelId": "ark-chat",
+    "httpStatus": 200,
+    "latencyMs": 812,
+    "retryCount": 0,
+    "text": "OK",
+    "usage": {
+      "inputTokens": 12,
+      "outputTokens": 1,
+      "totalTokens": 13,
+      "cachedInputTokens": 0,
+      "reasoningTokens": 0,
+      "source": "upstream"
+    },
+    "routeTrace": ["provider-prefix:volcengine-ark"],
+    "executionTrace": {}
+  }
+}
+```
+
+失败响应仍为 HTTP 200：
+
+```json
+{
+  "data": {
+    "ok": false,
+    "requestedModel": "volcengine-ark/ark-chat",
+    "latencyMs": 120,
+    "error": {
+      "code": "PROVIDER_UNAVAILABLE",
+      "message": "No available provider account"
+    }
+  }
+}
+```
 
 ## 4. 错误码
 

@@ -1,0 +1,3 @@
+{"file": ".trellis/tasks/10-31-magpie-feature-parity/research/magpie.md", "reason": "Verify implementation against the selected Magpie-inspired scope and current blockers"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Check for duplicated provider/route/config logic during review"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check admin API, config, execution and UI contracts together"}

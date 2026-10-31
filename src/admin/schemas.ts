@@ -195,6 +195,16 @@ export const configRollbackSchema = z.object({
   version: z.number().int().positive(),
 });
 
+export const routingExplainSchema = z.object({
+  model: z.string().min(1).max(200),
+});
+
+export const gatewayTestSchema = z.object({
+  model: z.string().min(1).max(200),
+  prompt: z.string().max(2000).optional(),
+  maxOutputTokens: z.number().int().min(1).max(32).optional(),
+});
+
 export const pricingCreateSchema = z.object({
   providerId: z.string().min(1).max(128),
   modelId: z.string().min(1).max(200),

@@ -8,6 +8,7 @@ const HTML = `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>FufuGateway 管理台</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/ui-static/app.css">
 </head>
 <body>

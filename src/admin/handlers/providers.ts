@@ -239,6 +239,18 @@ export async function deleteAccountHandler(c: Context<AppEnv>): Promise<Response
 export async function testProviderHandler(c: Context<AppEnv>): Promise<Response> {
   const provider = await requireProvider(c, requireProviderId(c));
   const startedAt = Date.now();
+  const accounts = await listAccounts(c.env.DB, provider.id);
+  if (accounts.length === 0) {
+    return c.json({
+      ok: false,
+      providerId: provider.id,
+      latencyMs: 0,
+      error: {
+        code: "PROVIDER_NO_ACCOUNT",
+        message: "Provider has no accounts. Add an upstream account before testing.",
+      },
+    });
+  }
   try {
     const { account, apiKey } = await selectAnyProviderAccount(c.env, provider.id);
     const models = await fetchProviderModels({
@@ -257,11 +269,21 @@ export async function testProviderHandler(c: Context<AppEnv>): Promise<Response>
     });
   } catch (error) {
     const gatewayError = toGatewayError(error);
+    const upstreamStatus = gatewayError.details?.["upstream_status"];
+    let message = gatewayError.publicMessage;
+    if (gatewayError.code === "PROVIDER_UNAVAILABLE") {
+      message = "No usable provider account. Check that the account is enabled and its credential is valid.";
+    } else if (upstreamStatus === 401 || upstreamStatus === 403) {
+      message = "Provider authentication failed. Check the account API key or secretRef.";
+    } else if (upstreamStatus === 404 || upstreamStatus === 405) {
+      message =
+        "The provider does not expose a compatible models endpoint. Create models manually or use the gateway test.";
+    }
     return c.json({
       ok: false,
       providerId: provider.id,
       latencyMs: Date.now() - startedAt,
-      error: { code: gatewayError.code, message: gatewayError.publicMessage },
+      error: { code: gatewayError.code, message },
     });
   }
 }

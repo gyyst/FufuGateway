@@ -39,12 +39,16 @@ function joinPath(base: URL, path: string): URL {
   return url;
 }
 
-function ensureVersionedPath(base: URL, suffix: string): URL {
+export function hasVersionSuffix(path: string): boolean {
+  return /\/v\d+(?:beta\d*)?$/i.test(path);
+}
+
+export function ensureVersionedPath(base: URL, suffix: string): URL {
   const url = new URL(base.toString());
   const path = url.pathname.replace(/\/+$/, "");
   if (path.endsWith(suffix)) return url;
   if (path === "") url.pathname = `/v1${suffix}`;
-  else if (path.endsWith("/v1")) url.pathname = `${path}${suffix}`;
+  else if (hasVersionSuffix(path)) url.pathname = `${path}${suffix}`;
   else url.pathname = `${path}/v1${suffix}`;
   return url;
 }
@@ -165,6 +169,13 @@ export function buildProviderAuth(provider: ProviderRecord, apiKey: string): Aut
       code: "CONFIG_INVALID",
       message: `Unsupported authMode "${mode}" for provider "${provider.name}"`,
     });
+  }
+  if (
+    (provider.type === "ANTHROPIC" || provider.protocol === "anthropic") &&
+    headers["anthropic-version"] === undefined
+  ) {
+    headers["anthropic-version"] =
+      asString(provider.extraConfig["anthropicVersion"]) ?? "2023-06-01";
   }
   return { headers, query };
 }
