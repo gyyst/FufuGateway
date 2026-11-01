@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/11-01-magpie-ui-visualization/research/trace-baseline.md", "reason": "Route trace, execution tree, plan and usage data shapes the UI must render"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Zero-build component, escaping, theme-variable and form conventions"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse esc, formatters, chart and trace helpers instead of duplicating renderers"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Keep static assets, HTML shell, CSP and admin API contracts aligned"}

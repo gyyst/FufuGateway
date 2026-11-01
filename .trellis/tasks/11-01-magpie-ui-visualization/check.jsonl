@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/11-01-magpie-ui-visualization/research/trace-baseline.md", "reason": "Verify rendered fields against the actual trace/plan/usage shapes"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Check zero-build UI quality rules and forbidden patterns"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Check for duplicated rendering, formatting or chart logic"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check that static assets, CSP and admin API usage stay consistent"}
