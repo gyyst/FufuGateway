@@ -19,7 +19,6 @@ import { initThemeToggle } from "./js/theme.js";
     models: [],
     aliases: [],
     combos: [],
-    wildcards: [],
     routeLookupsLoaded: false,
     page: "overview",
   };
@@ -141,16 +140,14 @@ import { initThemeToggle } from "./js/theme.js";
 
   async function ensureRouteLookups(force) {
     if (!force && state.routeLookupsLoaded) return;
-    const [models, aliases, combos, wildcards] = await Promise.all([
+    const [models, aliases, combos] = await Promise.all([
       api("/admin/models"),
       api("/admin/aliases"),
       api("/admin/combos"),
-      api("/admin/wildcards"),
     ]);
     state.models = models.data || [];
     state.aliases = aliases.data || [];
     state.combos = combos.data || [];
-    state.wildcards = wildcards.data || [];
     state.routeLookupsLoaded = true;
   }
 
@@ -211,15 +208,12 @@ import { initThemeToggle } from "./js/theme.js";
       const value = JSON.stringify({ combo: combo.name });
       if (seen.has(value)) continue;
       seen.add(value);
-      entries.push({ value, label: "Combo · " + combo.name, group: "Combo" });
-    }
-    for (const rule of state.wildcards) {
-      if (rule.enabled === false) continue;
-      if (except && (except.wildcardId === rule.id || except.wildcardPattern === rule.pattern)) continue;
-      const value = JSON.stringify({ wildcard: rule.pattern });
-      if (seen.has(value)) continue;
-      seen.add(value);
-      entries.push({ value, label: "通配符 · " + rule.pattern, group: "通配符" });
+      const glob = combo.name.includes("*") || combo.name.includes("?");
+      entries.push({
+        value,
+        label: "Combo · " + combo.name + (glob ? "（通配符）" : ""),
+        group: "Combo",
+      });
     }
     return entries;
   }
@@ -371,7 +365,7 @@ import { initThemeToggle } from "./js/theme.js";
     if (target.model) return "模型 · " + target.model;
     if (target.alias) return "别名 · " + target.alias;
     if (target.combo) return "Combo · " + target.combo;
-    if (target.wildcard) return "通配符 · " + target.wildcard;
+    if (target.wildcard) return "Combo · " + target.wildcard;
     return routeTargetJson(target);
   }
 
@@ -748,7 +742,7 @@ import { initThemeToggle } from "./js/theme.js";
       '<div class="combo-node-row" data-combo-node><div class="field"><span>目标</span>' +
       comboboxHtml("combo-target-" + ++comboNodeSeq, entries, target, {
         required: true,
-        placeholder: "搜索模型/别名/Combo/通配符",
+        placeholder: "搜索模型/别名/Combo",
         attrs: ' data-node-target="1"',
       }) +
       "</div>" +
@@ -975,16 +969,20 @@ import { initThemeToggle } from "./js/theme.js";
     });
     state.models.forEach((model) => {
       const label = providerName(model.providerId) + " / " + model.modelId;
-      push("模型", label, model.modelId, model.upstreamModelId || "", "models", model.modelId);
+      push(
+        "模型",
+        label,
+        model.modelId,
+        model.upstreamModelId || "",
+        "providers",
+        providerName(model.providerId),
+      );
     });
     state.aliases.forEach((alias) => {
       push("别名", alias.name, JSON.stringify(alias.target || ""), alias.id, "aliases", alias.name);
     });
     state.combos.forEach((combo) => {
       push("Combo", combo.name, combo.strategy, combo.id, "combos", combo.name);
-    });
-    state.wildcards.forEach((rule) => {
-      push("通配符", rule.pattern, rule.strategy, rule.id, "wildcards", rule.pattern);
     });
     state.users.forEach((user) => {
       const label = user.email || user.displayName || user.id;
@@ -1040,6 +1038,11 @@ import { initThemeToggle } from "./js/theme.js";
   async function route() {
     if (!state.token) {
       showLogin();
+      return;
+    }
+    const rawPage = location.hash.replace(/^#\/?/, "");
+    if (rawPage === "models" || rawPage === "wildcards") {
+      location.hash = "#/providers";
       return;
     }
     showApp();
@@ -1158,8 +1161,8 @@ import { initThemeToggle } from "./js/theme.js";
       control = comboboxHtml(field.name, entries, currentJson, {
         required: field.required,
         label: field.label,
-        placeholder: "搜索模型、别名、Combo 或通配符",
-        emptyText: "暂无模型、别名、Combo 或通配符",
+        placeholder: "搜索模型、别名或 Combo",
+        emptyText: "暂无模型、别名或 Combo",
       });
     } else if (field.type === "modelSelect") {
       const current = fieldValue(field, row, overrides) || "";
@@ -1211,7 +1214,7 @@ import { initThemeToggle } from "./js/theme.js";
           field.name,
           mergeCurrentEntries(routeTargetEntries(field.excludeRoute), currentJson, "当前目标 · "),
           currentJson,
-          "暂无模型、别名、Combo 或通配符",
+          "暂无模型、别名或 Combo",
         );
       } else if (field.type === "modelMulti") {
         control = checkListHtml(
@@ -1525,8 +1528,6 @@ import { initThemeToggle } from "./js/theme.js";
       let excludeRoute;
       if (entity.endpoint === "/admin/aliases" && field.name === "target" && row) {
         excludeRoute = { aliasId: row.id, aliasName: row.name };
-      } else if (entity.endpoint === "/admin/wildcards" && field.name === "targets" && row) {
-        excludeRoute = { wildcardId: row.id, wildcardPattern: row.pattern };
       } else if (entity.endpoint === "/admin/combos" && field.name === "nodes" && row) {
         excludeRoute = { comboId: row.id, comboName: row.name };
       }
@@ -2133,26 +2134,10 @@ import { initThemeToggle } from "./js/theme.js";
       type: "routeTarget",
       required: true,
       span: 2,
-      help: "从下拉选择模型、别名、Combo 或通配符；模型使用 provider/model 形式。",
+      help: "从下拉选择模型、别名或 Combo；模型使用 provider/model 形式。名称含 * 或 ? 的 Combo 按通配符匹配。",
     },
     { name: "enabled", label: "启用", type: "checkbox", default: true },
     { name: "priority", label: "优先级", type: "number", default: 100 },
-    { name: "description", label: "说明", span: 2 },
-  ];
-
-  const wildcardFields = [
-    { name: "pattern", label: "Pattern", required: true, help: "仅支持 * 与 ?" },
-    { name: "strategy", label: "策略", type: "select", options: STRATEGIES, default: "fallback" },
-    {
-      name: "targets",
-      label: "目标列表",
-      type: "routeTargetMulti",
-      required: true,
-      span: 2,
-      help: "可多选模型、别名、Combo 或通配符；至少选择一项。",
-    },
-    { name: "priority", label: "优先级", type: "number", default: 100 },
-    { name: "enabled", label: "启用", type: "checkbox", default: true },
     { name: "description", label: "说明", span: 2 },
   ];
 
@@ -2175,8 +2160,20 @@ import { initThemeToggle } from "./js/theme.js";
   ];
 
   const comboFields = [
-    { name: "name", label: "名称", required: true },
+    {
+      name: "name",
+      label: "名称",
+      required: true,
+      help: "名称含 * 或 ? 时按通配符匹配（如 gpt-*）；否则精确匹配。",
+    },
     { name: "strategy", label: "策略", type: "select", options: STRATEGIES, default: "fallback" },
+    {
+      name: "priority",
+      label: "优先级",
+      type: "number",
+      default: 100,
+      help: "通配符 Combo 按优先级从高到低匹配；精确 Combo 优先于所有通配符。",
+    },
     {
       name: "judgeModel",
       label: "Judge Model",
@@ -2191,7 +2188,7 @@ import { initThemeToggle } from "./js/theme.js";
       span: 2,
       rows: 8,
       default: [],
-      help: "选择目标并设置权重/优先级/超时/重试/策略。未启用模型会标记，使用前请在模型页启用。",
+      help: "选择目标并设置权重/优先级/超时/重试/策略。未启用模型会标记，使用前请在 Provider 的「模型」操作中启用。",
     },
     { name: "timeoutMs", label: "整体超时 (ms)", type: "number" },
     { name: "maxConcurrency", label: "最大并发", type: "number", min: 1 },
@@ -2376,43 +2373,6 @@ import { initThemeToggle } from "./js/theme.js";
         { label: "优先级", key: "priority" },
       ],
     },
-    wildcards: {
-      title: "通配符",
-      endpoint: "/admin/wildcards",
-      fields: wildcardFields,
-      empty: {
-        title: "还没有通配符规则",
-        text: "用通配符把一批模型映射到多个目标，例如 gpt-* 或 claude-*。",
-        action: "new",
-        actionLabel: "新建通配符",
-      },
-      columns: [
-        { label: "Pattern", key: "pattern", mono: true },
-        { label: "策略", key: "strategy", mono: true },
-        { label: "目标", render: (row) => '<span class="mono">' + esc(JSON.stringify(row.targets)) + "</span>" },
-        enabledColumn(),
-        { label: "优先级", key: "priority" },
-      ],
-      actions: [
-        {
-          key: "preview",
-          label: "预览",
-          run: async (row) => {
-            const pattern = prompt("通配符 pattern", row.pattern || "");
-            if (!pattern) return;
-            try {
-              const result = await api("/admin/wildcards/preview", {
-                method: "POST",
-                body: { pattern },
-              });
-              modal("通配符预览", '<pre class="mono">' + esc(JSON.stringify(result.data, null, 2)) + "</pre>");
-            } catch (error) {
-              notify(error.message, "bad");
-            }
-          },
-        },
-      ],
-    },
     combos: {
       title: "Combo",
       endpoint: "/admin/combos",
@@ -2425,9 +2385,18 @@ import { initThemeToggle } from "./js/theme.js";
       },
       columns: [
         { label: "名称", key: "name", mono: true },
+        {
+          label: "匹配",
+          render: (row) => {
+            const name = String(row.name || "");
+            const glob = name.includes("*") || name.includes("?");
+            return glob ? '<span class="badge warn">通配符</span>' : '<span class="badge">精确</span>';
+          },
+        },
         { label: "策略", key: "strategy", mono: true },
         { label: "节点数", render: (row) => esc((row.nodes || []).length) },
         { label: "Judge", render: (row) => esc(row.judgeModel || "-") },
+        { label: "优先级", key: "priority", nowrap: true },
         enabledColumn(),
       ],
       actions: [
@@ -4319,9 +4288,7 @@ import { initThemeToggle } from "./js/theme.js";
     setup: setupPage,
     overview: overviewPage,
     providers: crudPage(entities.providers),
-    models: crudPage(entities.models),
     aliases: crudPage(entities.aliases),
-    wildcards: crudPage(entities.wildcards),
     combos: crudPage(entities.combos),
     keys: keysPage,
     users: crudPage(entities.users),
