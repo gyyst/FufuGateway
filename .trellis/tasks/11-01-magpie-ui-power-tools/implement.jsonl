@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/11-01-magpie-ui-power-tools/research/power-tools-baseline.md", "reason": "Breaker, usage summary filters, state lookups and command palette constraints"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Zero-build component, escaping, theme-variable and form conventions"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse modal, formatters, chart/bar styles and existing lookup data"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Keep shell, static assets, CSP and admin API usage consistent"}

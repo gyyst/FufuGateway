@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/11-01-magpie-ui-power-tools/research/power-tools-baseline.md", "reason": "Verify palette, health and budget behavior against actual API shapes"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Check zero-build UI quality rules and forbidden patterns"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Check for duplicated modal, formatting or lookup logic"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check that shell, CSP and admin API usage stay consistent"}
