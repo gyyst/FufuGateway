@@ -27,7 +27,7 @@ function toHex(bytes: Uint8Array): string {
 }
 
 /** 下游 API Key：`fufu_sk_` + 32 字节随机值（base64url）。 */
-export async function generateApiKey(pepper: string): Promise<{
+export async function generateApiKey(): Promise<{
   plaintext: string;
   prefix: string;
   hash: string;
@@ -37,13 +37,16 @@ export async function generateApiKey(pepper: string): Promise<{
   return {
     plaintext,
     prefix: plaintext.slice(0, 12),
-    hash: await hashApiKey(pepper, plaintext),
+    hash: await hashApiKey(plaintext),
   };
 }
 
-/** 高熵 Key 使用带 pepper 的 SHA-256 即可安全存储。 */
-export async function hashApiKey(pepper: string, apiKey: string): Promise<string> {
-  const data = new TextEncoder().encode(`${pepper}:${apiKey}`);
+/**
+ * 高熵随机 Key 使用带固定域前缀的无盐 SHA-256 即可安全存储。
+ * 域前缀用于避免与其他用途的 SHA-256 摘要复用。
+ */
+export async function hashApiKey(apiKey: string): Promise<string> {
+  const data = new TextEncoder().encode(`fufu_api_key:${apiKey}`);
   return toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", data)));
 }
 

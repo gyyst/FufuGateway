@@ -232,7 +232,7 @@ DO 分片：
 
 - SSRF：HTTPS、端口 443、拒绝私有/环回/链路本地/元数据地址、拒绝 URL 凭据、拒绝重定向。
 - Header：自定义头白名单校验，禁止认证头、Cookie、CF 头、转发头与 Host 等。
-- API Key：高熵密钥 + pepper 哈希；上游密钥 AES-GCM 或 Secret 引用。
+- API Key：高熵密钥 + 带固定域前缀的无盐 SHA-256 哈希；上游密钥 AES-GCM 或 Secret 引用。
 - 请求体与 SSE 事件大小限制。
 - 管理面与推理面独立鉴权；管理令牌支持常量时间比较，也支持 admin scope 的 API Key。
 - 日志脱敏：认证头、API Key、Token、Secret 等字段与常见密钥模式。

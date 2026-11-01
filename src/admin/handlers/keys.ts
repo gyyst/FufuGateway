@@ -36,18 +36,6 @@ async function requireApiKey(c: Context<AppEnv>, id: string): Promise<ApiKeyReco
   return key;
 }
 
-function pepper(c: Context<AppEnv>): string {
-  const value = c.env.API_KEY_PEPPER;
-  if (value === undefined || value === "") {
-    throw new GatewayError({
-      code: "INTERNAL_ERROR",
-      message: "API key hashing is not configured",
-      expose: false,
-    });
-  }
-  return value;
-}
-
 export async function listUsersHandler(c: Context<AppEnv>): Promise<Response> {
   return c.json({ data: await listUsers(c.env.DB) });
 }
@@ -129,7 +117,7 @@ export async function listApiKeysHandler(c: Context<AppEnv>): Promise<Response> 
 export async function createApiKeyHandler(c: Context<AppEnv>): Promise<Response> {
   const input = await parseAdminBody(c, apiKeyCreateSchema);
   await requireUser(c, input.userId);
-  const generated = await generateApiKey(pepper(c));
+  const generated = await generateApiKey();
   const key = await createApiKeyRecord(c.env.DB, {
     userId: input.userId,
     name: input.name,
@@ -213,7 +201,7 @@ export async function deleteApiKeyHandler(c: Context<AppEnv>): Promise<Response>
 export async function rotateApiKeyHandler(c: Context<AppEnv>): Promise<Response> {
   const key = await requireApiKey(c, requireParam(c, "id"));
   const input = await parseAdminBody(c, apiKeyRotateSchema);
-  const generated = await generateApiKey(pepper(c));
+  const generated = await generateApiKey();
   const rotated = await createApiKeyRecord(c.env.DB, {
     userId: key.userId,
     name: `${key.name} (rotated)`,

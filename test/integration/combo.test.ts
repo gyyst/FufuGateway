@@ -181,9 +181,7 @@ async function createCombo(name: string, body: Record<string, unknown>): Promise
 
 beforeAll(async () => {
   const user = await createUser(env.DB, { displayName: "Combo User" });
-  const pepper = env.API_KEY_PEPPER;
-  if (!pepper) throw new Error("API_KEY_PEPPER is not configured for tests");
-  const generated = await generateApiKey(pepper);
+  const generated = await generateApiKey();
   downstreamKey = generated.plaintext;
   await createApiKeyRecord(env.DB, {
     userId: user.id,
@@ -191,7 +189,7 @@ beforeAll(async () => {
     keyPrefix: generated.prefix,
     keyHash: generated.hash,
   });
-  const restricted = await generateApiKey(pepper);
+  const restricted = await generateApiKey();
   restrictedKey = restricted.plaintext;
   await createApiKeyRecord(env.DB, {
     userId: user.id,

@@ -41,7 +41,6 @@ npx wrangler r2 bucket create fufu-gateway-archive
 
 ```bash
 npx wrangler secret put ADMIN_TOKEN
-npx wrangler secret put API_KEY_PEPPER
 npx wrangler secret put ENCRYPTION_KEY
 ```
 
@@ -54,12 +53,13 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 | Secret | 用途 |
 |--------|------|
 | `ADMIN_TOKEN` | 管理 API 与 `/ui` 登录 |
-| `API_KEY_PEPPER` | 下游 API Key 哈希 |
 | `ENCRYPTION_KEY` | 上游 API Key AES-256-GCM 加密 |
 
 生产环境不要复用示例值，也不要提交 `.dev.vars`。
 
-使用 Workers Builds 时，也可以在 Cloudflare Dashboard 的 Worker → Settings → Variables and Secrets 中配置同名 Secret。部署本身不要求这些 Secret，但缺少 `ADMIN_TOKEN` 会导致管理端返回 503，缺少 `API_KEY_PEPPER` 或 `ENCRYPTION_KEY` 会导致 API Key 认证与上游账户加密失败。
+使用 Workers Builds 时，也可以在 Cloudflare Dashboard 的 Worker → Settings → Variables and Secrets 中配置同名 Secret。部署本身不要求这些 Secret，但缺少 `ADMIN_TOKEN` 会导致管理端返回 503，缺少 `ENCRYPTION_KEY` 会导致上游账户加密失败。
+
+本版本已移除下游 API Key 的哈希盐 Secret。升级后旧下游 Key 的哈希无法重算，所有已有下游 Key 会失效，需要在管理台重新签发。
 
 ## 4. 执行 D1 迁移
 

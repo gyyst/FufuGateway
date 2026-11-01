@@ -59,9 +59,10 @@ npm run dev
 
 ```dotenv
 ADMIN_TOKEN=change-me-admin-token
-API_KEY_PEPPER=change-me-api-key-pepper
 ENCRYPTION_KEY=<base64 编码的 32 字节随机值>
 ```
+
+升级到本版本后，下游 API Key 的哈希算法改为带固定域前缀的无盐 SHA-256，旧 Key 的哈希无法重算，所有已有下游 Key 会失效，需要在管理台重新签发。
 
 生成加密主密钥：
 
@@ -201,7 +202,7 @@ docs/              架构、API、Provider、Combo、部署文档
 
 ## 安全要点
 
-- 下游 API Key 只存 `SHA-256(pepper + key)` 与前缀，明文仅创建/轮换时返回一次。
+- 下游 API Key 只存 `SHA-256("fufu_api_key:" + key)` 与前缀，明文仅创建/轮换时返回一次。
 - 上游 API Key 使用 AES-256-GCM 加密，或通过 `secretRef` 引用 Worker Secret。
 - 客户端 `Authorization` / `x-api-key` 永不透传；上游认证由 Provider Adapter 重建。
 - 上游地址仅允许管理员配置，强制 HTTPS、拒绝私有/环回/元数据地址与重定向。

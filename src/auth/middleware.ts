@@ -15,15 +15,7 @@ export async function authenticateCredential(
   env: AppEnv["Bindings"],
   credential: string,
 ): Promise<{ apiKey: ApiKeyRecord; user: UserRecord }> {
-  const pepper = env.API_KEY_PEPPER;
-  if (!pepper) {
-    throw new GatewayError({
-      code: "INTERNAL_ERROR",
-      message: "API key hashing is not configured",
-      expose: false,
-    });
-  }
-  const hash = await hashApiKey(pepper, credential);
+  const hash = await hashApiKey(credential);
   const found = await findApiKeyAuthentication(env.DB, hash);
   if (!found) throw unauthorized();
   const { apiKey, user } = found;

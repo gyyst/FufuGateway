@@ -103,10 +103,9 @@ export async function setupStatusHandler(c: Context<AppEnv>): Promise<Response> 
 
   const secrets = {
     adminToken: secretConfigured(c.env.ADMIN_TOKEN),
-    apiKeyPepper: secretConfigured(c.env.API_KEY_PEPPER),
     encryptionKey: secretConfigured(c.env.ENCRYPTION_KEY),
   };
-  const secretsComplete = secrets.adminToken && secrets.apiKeyPepper && secrets.encryptionKey;
+  const secretsComplete = secrets.adminToken && secrets.encryptionKey;
 
   const audit = await c.env.DB.prepare(
     `SELECT action, details, created_at FROM audit_logs
@@ -131,7 +130,6 @@ export async function setupStatusHandler(c: Context<AppEnv>): Promise<Response> 
 
   const missingSecrets = [
     !secrets.adminToken ? "ADMIN_TOKEN" : null,
-    !secrets.apiKeyPepper ? "API_KEY_PEPPER" : null,
     !secrets.encryptionKey ? "ENCRYPTION_KEY" : null,
   ].filter((value): value is string => value !== null);
 
@@ -141,7 +139,7 @@ export async function setupStatusHandler(c: Context<AppEnv>): Promise<Response> 
       label: "配置 Worker Secrets",
       complete: secretsComplete,
       detail: secretsComplete
-        ? "管理员令牌、Key 哈希盐和上游密钥加密密钥均已配置。"
+        ? "管理员令牌和上游密钥加密密钥均已配置。"
         : `缺少：${missingSecrets.join("、")}`,
     },
     {

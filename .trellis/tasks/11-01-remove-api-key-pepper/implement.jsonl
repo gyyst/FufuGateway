@@ -1,0 +1,3 @@
+{"file": ".trellis/tasks/11-01-remove-api-key-pepper/prd.md", "reason": "Requirements, exact edit sites, non-goals and acceptance criteria for removing API_KEY_PEPPER"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Removing a config constant requires a global reference sweep before editing; follow the pre-modification search rule"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "The /admin/setup response shape loses a secrets field and deployment docs must stay consistent with the backend contract"}

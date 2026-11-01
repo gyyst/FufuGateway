@@ -78,9 +78,7 @@ function openAIStreamChunks(text = "pong"): string[] {
 
 beforeAll(async () => {
   const user = await createUser(env.DB, { displayName: "Streaming User" });
-  const pepper = env.API_KEY_PEPPER;
-  if (!pepper) throw new Error("API_KEY_PEPPER is not configured for tests");
-  const generated = await generateApiKey(pepper);
+  const generated = await generateApiKey();
   downstreamKey = generated.plaintext;
   await createApiKeyRecord(env.DB, {
     userId: user.id,

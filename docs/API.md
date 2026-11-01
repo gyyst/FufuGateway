@@ -284,7 +284,6 @@ Gemini 模型目录与单个模型查询。
     "readyForInference": false,
     "secrets": {
       "adminToken": true,
-      "apiKeyPepper": true,
       "encryptionKey": true
     },
     "counts": {

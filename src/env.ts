@@ -18,8 +18,6 @@ export interface GatewayEnv {
 
   /** 管理员令牌（Secret）。 */
   ADMIN_TOKEN?: string;
-  /** 下游 API Key 哈希盐值（Secret）。 */
-  API_KEY_PEPPER?: string;
   /** 上游密钥 AES-256-GCM 主密钥，base64 编码 32 字节（Secret）。 */
   ENCRYPTION_KEY?: string;
 
