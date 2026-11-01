@@ -150,23 +150,15 @@ Gemini 模型目录与单个模型查询。
 | GET/POST | `/admin/aliases` |
 | GET/PUT/DELETE | `/admin/aliases/:id` |
 
-`target` 支持字符串（模型引用）或对象：`{"model":"..."}`、`{"alias":"..."}`、`{"combo":"..."}`、`{"wildcard":"..."}`。
+`target` 支持字符串（模型引用）或对象：`{"model":"..."}`、`{"alias":"..."}`、`{"combo":"..."}`。旧配置中的 `{"wildcard":"pattern"}` 仍可解析，等价于引用同名 glob Combo。
 
-### 3.4 通配符
+### 3.4 Combo 通配符模式
 
-| 方法 | 路径 |
-|------|------|
-| GET/POST | `/admin/wildcards` |
-| GET/PUT/DELETE | `/admin/wildcards/:id` |
-| POST | `/admin/wildcards/preview` |
+通配符已合并进 Combo：名称包含 `*` 或 `?` 的 Combo 按 glob 匹配，名称即 pattern；`/admin/wildcards*` 端点已移除。
 
-预览请求：
-
-```json
-{ "pattern": "claude-*", "models": ["claude-sonnet-4-5", "gpt-5"] }
-```
-
-返回命中列表、具体度与相对其他规则的优先级位置。
+- 精确 Combo 优先于所有 glob Combo。
+- 多个 glob Combo 按 `priority` 降序 → 具体度 → ID 升序。
+- 通过 `/admin/combos/:id/preview` 查看节点解析结果。
 
 ### 3.5 Combo
 
@@ -176,6 +168,8 @@ Gemini 模型目录与单个模型查询。
 | GET/PUT/DELETE | `/admin/combos/:id` |
 | POST | `/admin/combos/:id/validate` |
 | POST | `/admin/combos/:id/preview` |
+
+Combo 字段：`name`（含 `*`/`?` 时为通配符模式）、`strategy`、`nodes`、`judgeModel`、`timeoutMs`、`maxConcurrency`、`sticky`、`priority`（默认 100）、`enabled`、`description`。
 
 ### 3.6 用户与 API Key
 

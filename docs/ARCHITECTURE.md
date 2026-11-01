@@ -108,8 +108,8 @@ IR 定义在 `src/ir/`：
 1. `provider/model` 前缀精确匹配（Provider 只按名称匹配第一段）。
 2. 原生模型精确匹配；唯一则路由，多条则 `MODEL_AMBIGUOUS`。
 3. Alias / Combo 精确名称匹配（同一命名空间）。
-4. Glob 通配符：
-   - 排序：`priority` 降序 → 具体度（字面量多、通配符少、段数多）→ 规则 ID 升序。
+4. glob Combo（名称含 `*` 或 `?`）：
+   - 排序：`priority` 降序 → 具体度（字面量多、通配符少、段数多）→ Combo ID 升序。
    - 只支持 `*` 与 `?`，编译为锚定正则，不开放用户正则。
 5. 未命中返回 `MODEL_NOT_FOUND`。
 

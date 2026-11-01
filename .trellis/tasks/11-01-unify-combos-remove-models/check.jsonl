@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/11-01-unify-combos-remove-models/research/unify-baseline.md", "reason": "Verify the unified combo behavior, migration and compatibility paths"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Check migration safety and repository mapping"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Check routing, validation and admin API quality"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Check the merged UI and navigation changes"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check snapshot, runtime, API and UI consistency"}

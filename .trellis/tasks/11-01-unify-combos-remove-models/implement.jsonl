@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/11-01-unify-combos-remove-models/research/unify-baseline.md", "reason": "Current wildcard/combo model, route order, validation and migration strategy"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "D1 migration and data mapping conventions"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality gates for validation, routing and repository changes"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Zero-build UI conventions for navigation, forms and selectors"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Keep config snapshot, runtime, admin API and UI consistent"}

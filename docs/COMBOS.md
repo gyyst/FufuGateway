@@ -1,6 +1,6 @@
 # Combo 编排
 
-Combo 是由多个节点组成的虚拟模型。节点可以是 Provider 模型、Alias、通配符规则、嵌套 Combo 或内联组合。执行时按策略选择、并发或故障转移。
+Combo 是由多个节点组成的虚拟模型。节点可以是 Provider 模型、Alias、嵌套 Combo 或内联组合。名称含 `*` 或 `?` 的 Combo 同时承担通配符路由。执行时按策略选择、并发或故障转移。
 
 ## 1. 配置结构
 
@@ -9,6 +9,7 @@ Combo 是由多个节点组成的虚拟模型。节点可以是 Provider 模型�
   "name": "coding-combo",
   "description": "编码任务首选组合",
   "strategy": "fallback",
+  "priority": 100,
   "nodes": [
     { "model": "openai/gpt-5", "weight": 1, "priority": 100, "timeoutMs": 60000 },
     { "combo": "cheap-combo" },
@@ -30,7 +31,7 @@ Combo 是由多个节点组成的虚拟模型。节点可以是 Provider 模型�
 节点简写：
 
 - 字符串：等价于模型引用，例如 `"openai/gpt-5"`。
-- 对象：`{ "model": "..." }`、`{ "alias": "..." }`、`{ "wildcard": "claude-*" }`、`{ "combo": "..." }`。
+- 对象：`{ "model": "..." }`、`{ "alias": "..." }`、`{ "combo": "..." }`。旧配置中的 `{ "wildcard": "claude-*" }` 仍兼容，等价于引用同名 glob Combo。
 - 对象可附带 `weight`、`priority`、`timeoutMs`、`maxRetries`、`strategy`（覆盖该节点的调度策略）。
 - `maxRetries` 作用于模型叶子节点，覆盖该节点所属 Provider 的重试次数（上限 10）。
 
@@ -63,14 +64,15 @@ Combo 是由多个节点组成的虚拟模型。节点可以是 Provider 模型�
 - 候选结果会拼接为 Judge Prompt，由 Judge Model 生成最终答案。
 - 候选与 Judge 的 Token 费用目前只记录最终响应的 Usage；候选调用成本未并入单次统计（列为限制）。
 
-## 3. 通配符与 Alias 节点
+## 3. glob Combo 与 Alias 节点
 
-Combo 节点可以引用通配符或 Alias，发布/解析时展开：
+Combo 节点可以引用其他 Combo 或 Alias，发布/解析时展开：
 
 - Alias 指向模型 → 模型节点。
 - Alias 指向 Combo → 嵌套 Combo 节点。
-- Alias 指向通配符 → 按该通配符策略生成内联组合。
-- 通配符节点 → 内联组合，策略取通配符规则。
+- Combo 引用 → 嵌套 Combo 节点，策略取被引用 Combo。
+- 名称含 `*` 或 `?` 的 Combo 是 glob 模式：可作为路由入口按 pattern 命中，也可被其他 Combo 以 `{ "combo": "pattern" }` 引用。
+- 精确 Combo 名称优先于所有 glob Combo；glob Combo 之间按 `priority` 降序、具体度、ID 排序。
 
 ## 4. 会话粘性
 

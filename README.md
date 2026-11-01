@@ -10,7 +10,7 @@
 |------|------|
 | 下游协议入口 | OpenAI Chat / OpenAI Responses / Anthropic Messages / Gemini |
 | 上游协议 | 同上，任意组合交叉转换 |
-| 模型路由 | Provider 前缀、原生模型、歧义检测、Alias、Glob 通配符、Combo |
+| 模型路由 | Provider 前缀、原生模型、歧义检测、Alias、Combo（精确 / 通配符） |
 | Combo 策略 | fallback、round_robin、weighted_round_robin、random、priority、lowest_latency、lowest_cost、race、fusion |
 | 高可用 | 重试、指数退避、Retry-After、首 Token/空闲/总超时、熔断、账户轮换 |
 | 流式 | 字节级增量 SSE、任意 Chunk 切分、UTF-8 边界、取消传播、流内错误事件 |
