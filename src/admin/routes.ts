@@ -26,16 +26,10 @@ import {
 } from "./handlers/models";
 import {
   createAliasHandler,
-  createWildcardHandler,
   deleteAliasHandler,
-  deleteWildcardHandler,
   getAliasHandler,
-  getWildcardHandler,
   listAliasesHandler,
-  listWildcardsHandler,
-  previewWildcardHandler,
   updateAliasHandler,
-  updateWildcardHandler,
 } from "./handlers/routing";
 import {
   createComboHandler,
@@ -116,13 +110,6 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
   app.delete("/admin/aliases/:id", deleteAliasHandler);
 
   // 通配符
-  app.get("/admin/wildcards", listWildcardsHandler);
-  app.post("/admin/wildcards", createWildcardHandler);
-  app.post("/admin/wildcards/preview", previewWildcardHandler);
-  app.get("/admin/wildcards/:id", getWildcardHandler);
-  app.put("/admin/wildcards/:id", updateWildcardHandler);
-  app.delete("/admin/wildcards/:id", deleteWildcardHandler);
-
   // Combo
   app.get("/admin/combos", listCombosHandler);
   app.post("/admin/combos", createComboHandler);

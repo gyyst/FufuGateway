@@ -52,6 +52,7 @@ export async function createComboHandler(c: Context<AppEnv>): Promise<Response> 
     timeoutMs: input.timeoutMs,
     maxConcurrency: input.maxConcurrency,
     sticky: input.sticky,
+    priority: input.priority,
     enabled: input.enabled,
   });
   await recordAudit(c, "combo.create", "combo", combo.id, { name: combo.name });
@@ -78,6 +79,7 @@ export async function updateComboHandler(c: Context<AppEnv>): Promise<Response> 
     ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
     ...(input.maxConcurrency === undefined ? {} : { maxConcurrency: input.maxConcurrency }),
     ...(input.sticky === undefined ? {} : { sticky: input.sticky }),
+    ...(input.priority === undefined ? {} : { priority: input.priority }),
     ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
     updatedAt: Date.now(),
   };
@@ -140,7 +142,16 @@ function summarizePlan(plan: RoutePlan): Record<string, unknown> {
 
 async function buildPreviewRouter(c: Context<AppEnv>): Promise<ModelRouter> {
   const data = await loadConfigData(c.env.DB);
-  const validWildcards = data.wildcards.filter((rule) => {
+  const validCombos = data.combos.filter((combo) => {
+    if (!combo.name.includes("*") && !combo.name.includes("?")) return true;
+    try {
+      compileGlob(combo.name);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  const validWildcards = (data.wildcards ?? []).filter((rule) => {
     try {
       compileGlob(rule.pattern);
       return true;
@@ -150,7 +161,7 @@ async function buildPreviewRouter(c: Context<AppEnv>): Promise<ModelRouter> {
   });
   return new ModelRouter(
     buildRuntimeConfig(
-      { ...data, wildcards: validWildcards },
+      { ...data, combos: validCombos, wildcards: validWildcards },
       { version: 0, checksum: "", createdAt: 0, source: "d1-fallback" },
     ),
   );

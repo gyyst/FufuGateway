@@ -135,22 +135,6 @@ export const aliasCreateSchema = z.object({
 
 export const aliasUpdateSchema = aliasCreateSchema.partial();
 
-export const wildcardCreateSchema = z.object({
-  pattern: z.string().min(1).max(200),
-  strategy: strategySchema,
-  targets: z.array(routeTargetSchema).min(1).max(64),
-  priority: z.number().int().min(0).max(1_000_000).optional(),
-  enabled: z.boolean().optional(),
-  description: z.string().max(500).optional(),
-});
-
-export const wildcardUpdateSchema = wildcardCreateSchema.partial();
-
-export const wildcardPreviewSchema = z.object({
-  pattern: z.string().min(1).max(200),
-  models: z.array(z.string().min(1).max(200)).max(10_000).optional(),
-});
-
 const comboNodeSchema = z.union([
   z.string().min(1).max(200),
   z.object({
@@ -182,6 +166,7 @@ export const comboCreateSchema = z.object({
   timeoutMs: z.number().int().min(100).max(600_000).optional(),
   maxConcurrency: z.number().int().min(1).max(32).optional(),
   sticky: stickySchema.optional(),
+  priority: z.number().int().min(0).max(1_000_000).optional(),
   enabled: z.boolean().optional(),
 });
 

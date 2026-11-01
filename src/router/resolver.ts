@@ -4,12 +4,10 @@ import type {
   ModelPricing,
   ProviderRecord,
   RuntimeConfig,
-  WildcardRuleRecord,
 } from "../config/types";
 import { providerModelKey } from "../config/types";
 import type {
   RoutePlan,
-  RoutePlanNode,
   RouteResolution,
   RouteTargetSpec,
   ResolvedTarget,
@@ -30,6 +28,10 @@ function notFound(model: string): GatewayError {
     message: `Model "${model}" is not configured`,
     details: { model },
   });
+}
+
+function hasGlobChars(name: string): boolean {
+  return name.includes("*") || name.includes("?");
 }
 
 function ambiguous(model: string, providers: string[]): GatewayError {
@@ -90,17 +92,13 @@ export class ModelRouter {
       trace.push(`combo:${combo.name}`);
       return { kind: "combo", combo };
     }
-    const rule = this.config.wildcards.find((entry) => entry.rule.pattern === normalized.wildcard);
-    if (!rule || !rule.rule.enabled) throw notFound(normalized.wildcard);
-    const key = `wildcard:${rule.rule.pattern}`;
-    if (seen.has(key)) {
-      throw new GatewayError({
-        code: "CONFIG_INVALID",
-        message: `Wildcard cycle detected at "${rule.rule.pattern}"`,
-      });
-    }
-    trace.push(`wildcard:${rule.rule.pattern}`);
-    return this.resolveWildcardRule(rule.rule, trace, depth + 1, new Set(seen).add(key));
+    // `{ wildcard }` 为兼容用法，等价于按名称查找 glob Combo。
+    const globCombo = this.config.globCombos.find(
+      (entry) => entry.combo.name === normalized.wildcard,
+    );
+    if (!globCombo || !globCombo.combo.enabled) throw notFound(normalized.wildcard);
+    trace.push(`combo:${globCombo.combo.name}`);
+    return { kind: "combo", combo: globCombo.combo };
   }
 
   /** 解析单个模型引用：支持 provider/model 前缀与唯一原生模型。 */
@@ -201,9 +199,9 @@ export class ModelRouter {
       };
     }
 
-    // 4. Combo 名称精确匹配
+    // 4. Combo 名称精确匹配（名称不含通配符）
     const combo = this.config.combosByName.get(requestedModel.toLowerCase());
-    if (combo !== undefined && combo.enabled) {
+    if (combo !== undefined && combo.enabled && !hasGlobChars(combo.name)) {
       trace.push(`combo:${combo.name}`);
       return {
         requestedModel,
@@ -213,72 +211,26 @@ export class ModelRouter {
       };
     }
 
-    // 5. 通配符（已按 priority + 具体度 + ID 排序）
-    for (const entry of this.config.wildcards) {
-      if (!entry.rule.enabled) continue;
+    // 5. glob Combo（已按 priority + 具体度 + ID 排序）
+    for (const entry of this.config.globCombos) {
+      if (!entry.combo.enabled) continue;
       if (!globMatches(entry.compiled, requestedModel)) continue;
-      trace.push(`wildcard:${entry.rule.pattern}`);
-      const plan = this.resolveWildcardRule(entry.rule, trace, 1, new Set([`wildcard:${entry.rule.pattern}`]));
+      trace.push(`combo:${entry.combo.name}`);
       return {
         requestedModel,
         match: {
-          type: "wildcard",
-          ruleId: entry.rule.id,
-          pattern: entry.rule.pattern,
-          priority: entry.rule.priority,
+          type: "combo_glob",
+          comboId: entry.combo.id,
+          comboName: entry.combo.name,
+          pattern: entry.combo.name,
+          priority: entry.combo.priority ?? 100,
         },
-        plan,
+        plan: { kind: "combo", combo: entry.combo },
         trace,
       };
     }
 
     throw notFound(requestedModel);
-  }
-
-  private resolveWildcardRule(
-    rule: WildcardRuleRecord,
-    trace: string[],
-    depth: number,
-    seen: Set<string>,
-  ): RoutePlan {
-    if (rule.targets.length === 0) {
-      throw new GatewayError({ code: "CONFIG_INVALID", message: `Wildcard "${rule.pattern}" has no targets` });
-    }
-    const plans = rule.targets.map((target) => this.resolveTargetSpec(target, trace, depth, seen));
-    const hasCombo = plans.some((plan) => plan.kind !== "models");
-    if (!hasCombo) {
-      const targets: ResolvedTarget[] = [];
-      const seenTargets = new Set<string>();
-      for (const plan of plans) {
-        if (plan.kind !== "models") continue;
-        for (const target of plan.targets) {
-          if (seenTargets.has(target.modelRecordId)) continue;
-          seenTargets.add(target.modelRecordId);
-          targets.push(target);
-        }
-      }
-      if (targets.length === 0) {
-        throw new GatewayError({ code: "CONFIG_INVALID", message: `Wildcard "${rule.pattern}" resolved to no models` });
-      }
-      return { kind: "models", strategy: rule.strategy, targets };
-    }
-
-    const nodes: RoutePlanNode[] = [];
-    for (const plan of plans) {
-      if (plan.kind === "models") {
-        for (const target of plan.targets) {
-          nodes.push({ kind: "model", modelTarget: target, weight: target.weight, priority: rule.priority });
-        }
-      } else if (plan.kind === "combo") {
-        nodes.push({ kind: "combo", comboName: plan.combo.name, weight: 1, priority: rule.priority });
-      } else {
-        nodes.push(...plan.nodes);
-      }
-    }
-    if (nodes.length === 0) {
-      throw new GatewayError({ code: "CONFIG_INVALID", message: `Wildcard "${rule.pattern}" resolved to no nodes` });
-    }
-    return { kind: "inline_combo", name: `wildcard:${rule.pattern}`, strategy: rule.strategy, nodes };
   }
 
   private toTarget(record: ModelRecord, provider: ProviderRecord): ResolvedTarget {

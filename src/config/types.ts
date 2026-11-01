@@ -107,7 +107,8 @@ export interface AliasRecord {
   updatedAt: number;
 }
 
-export interface WildcardRuleRecord {
+/** @deprecated 仅用于读取旧配置快照中的通配符规则；新配置统一为 glob Combo。 */
+export interface LegacyWildcardRule {
   id: string;
   pattern: string;
   strategy: StrategyId;
@@ -176,7 +177,8 @@ export interface ConfigSnapshotData {
   accounts: ProviderAccountRecord[];
   models: ModelRecord[];
   aliases: AliasRecord[];
-  wildcards: WildcardRuleRecord[];
+  /** 旧快照可能仍包含通配符规则，运行时合成为 glob Combo。 */
+  wildcards?: LegacyWildcardRule[];
   combos: ComboRecord[];
   pricing: PricingRecord[];
   settings: RuntimeSettings;
@@ -190,8 +192,8 @@ export interface ConfigSnapshot {
   data: ConfigSnapshotData;
 }
 
-export interface CompiledWildcardRule {
-  rule: WildcardRuleRecord;
+export interface CompiledGlobCombo {
+  combo: ComboRecord;
   compiled: CompiledGlob;
 }
 
@@ -210,7 +212,7 @@ export interface RuntimeConfig {
   modelByProviderModel: Map<string, ModelRecord>;
   aliasesByName: Map<string, AliasRecord>;
   combosByName: Map<string, ComboRecord>;
-  wildcards: CompiledWildcardRule[];
+  globCombos: CompiledGlobCombo[];
   accountsByProvider: Map<string, ProviderAccountRecord[]>;
   pricingByProviderModel: Map<string, PricingRecord>;
   settings: RuntimeSettings;

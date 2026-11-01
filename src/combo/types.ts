@@ -61,6 +61,8 @@ export interface ComboRecord {
   timeoutMs?: number;
   maxConcurrency?: number;
   sticky?: StickyConfig;
+  /** glob Combo 的匹配优先级；精确 Combo 仅作展示。默认 100。 */
+  priority: number;
   enabled: boolean;
   createdAt: number;
   updatedAt: number;
@@ -92,7 +94,8 @@ export type RouteMatch =
   | { type: "native"; modelId: string }
   | { type: "alias"; alias: string; priority: number }
   | { type: "wildcard"; ruleId: string; pattern: string; priority: number }
-  | { type: "combo"; comboId: string; comboName: string };
+  | { type: "combo"; comboId: string; comboName: string }
+  | { type: "combo_glob"; comboId: string; comboName: string; pattern: string; priority: number };
 
 export interface RoutePlanNode {
   kind: "model" | "combo";

@@ -17,7 +17,6 @@ import type {
   ProviderType,
   RetryPolicyRecord,
   RuntimeSettings,
-  WildcardRuleRecord,
 } from "./types";
 import { DEFAULT_RUNTIME_SETTINGS, providerModelKey } from "./types";
 
@@ -173,18 +172,6 @@ interface AliasRow {
   updated_at: number;
 }
 
-interface WildcardRow {
-  id: string;
-  pattern: string;
-  strategy: string;
-  targets: string;
-  priority: number;
-  enabled: number;
-  description: string | null;
-  created_at: number;
-  updated_at: number;
-}
-
 interface ComboRow {
   id: string;
   name: string;
@@ -195,6 +182,7 @@ interface ComboRow {
   timeout_ms: number | null;
   max_concurrency: number | null;
   sticky: string | null;
+  priority: number;
   enabled: number;
   created_at: number;
   updated_at: number;
@@ -332,23 +320,6 @@ export function mapAlias(row: AliasRow): AliasRecord {
   };
 }
 
-export function mapWildcard(row: WildcardRow): WildcardRuleRecord {
-  const targets = parseJsonArray(row.targets, "wildcard_rules.targets").map((target, index) =>
-    parseRouteTarget(target, `wildcard_rules.targets[${index}]`),
-  );
-  return {
-    id: row.id,
-    pattern: row.pattern,
-    strategy: row.strategy as StrategyId,
-    targets,
-    priority: row.priority,
-    enabled: row.enabled === 1,
-    ...(row.description === null ? {} : { description: row.description }),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
 export function mapCombo(row: ComboRow): ComboRecord {
   const nodes = parseJsonArray(row.nodes, "combos.nodes") as ComboNodeSpec[];
   const sticky = parseJson(row.sticky, "combos.sticky") as StickyConfig | undefined;
@@ -362,6 +333,7 @@ export function mapCombo(row: ComboRow): ComboRecord {
     ...(row.timeout_ms === null ? {} : { timeoutMs: row.timeout_ms }),
     ...(row.max_concurrency === null ? {} : { maxConcurrency: row.max_concurrency }),
     ...(sticky === undefined ? {} : { sticky }),
+    priority: row.priority ?? 100,
     enabled: row.enabled === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -438,16 +410,6 @@ export async function getAlias(db: D1Database, id: string): Promise<AliasRecord 
   return row === null ? undefined : mapAlias(row);
 }
 
-export async function listWildcards(db: D1Database): Promise<WildcardRuleRecord[]> {
-  const rows = await db.prepare("SELECT * FROM wildcard_rules ORDER BY priority DESC, pattern ASC").all<WildcardRow>();
-  return rows.results.map(mapWildcard);
-}
-
-export async function getWildcard(db: D1Database, id: string): Promise<WildcardRuleRecord | undefined> {
-  const row = await db.prepare("SELECT * FROM wildcard_rules WHERE id = ?").bind(id).first<WildcardRow>();
-  return row === null ? undefined : mapWildcard(row);
-}
-
 export async function listCombos(db: D1Database): Promise<ComboRecord[]> {
   const rows = await db.prepare("SELECT * FROM combos ORDER BY name ASC").all<ComboRow>();
   return rows.results.map(mapCombo);
@@ -465,17 +427,16 @@ export async function listPricing(db: D1Database): Promise<PricingRecord[]> {
 
 /** 一次性加载构建配置快照所需的全部数据。 */
 export async function loadConfigData(db: D1Database): Promise<import("./types").ConfigSnapshotData> {
-  const [providers, accounts, models, aliases, wildcards, combos, pricing, settings] = await Promise.all([
+  const [providers, accounts, models, aliases, combos, pricing, settings] = await Promise.all([
     listProviders(db),
     listAccounts(db),
     listModels(db),
     listAliases(db),
-    listWildcards(db),
     listCombos(db),
     listPricing(db),
     loadSettings(db),
   ]);
-  return { providers, accounts, models, aliases, wildcards, combos, pricing, settings };
+  return { providers, accounts, models, aliases, combos, pricing, settings };
 }
 
 export async function loadSettings(db: D1Database): Promise<RuntimeSettings> {
@@ -860,57 +821,6 @@ export async function deleteAlias(db: D1Database, id: string): Promise<void> {
   await db.prepare("DELETE FROM model_aliases WHERE id = ?").bind(id).run();
 }
 
-export interface CreateWildcardInput {
-  pattern: string;
-  strategy: StrategyId;
-  targets: RouteTargetSpec[];
-  priority?: number;
-  enabled?: boolean;
-  description?: string;
-}
-
-export async function createWildcard(db: D1Database, input: CreateWildcardInput): Promise<WildcardRuleRecord> {
-  const timestamp = now();
-  const record: WildcardRuleRecord = {
-    id: newId("wld"),
-    pattern: input.pattern,
-    strategy: input.strategy,
-    targets: input.targets,
-    priority: input.priority ?? 100,
-    enabled: input.enabled ?? true,
-    ...(input.description === undefined ? {} : { description: input.description }),
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
-  await replaceWildcard(db, record);
-  return record;
-}
-
-export async function replaceWildcard(db: D1Database, record: WildcardRuleRecord): Promise<void> {
-  await db
-    .prepare(
-      `INSERT OR REPLACE INTO wildcard_rules
-        (id, pattern, strategy, targets, priority, enabled, description, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      record.id,
-      record.pattern,
-      record.strategy,
-      JSON.stringify(record.targets),
-      record.priority,
-      record.enabled ? 1 : 0,
-      record.description ?? null,
-      record.createdAt,
-      record.updatedAt,
-    )
-    .run();
-}
-
-export async function deleteWildcard(db: D1Database, id: string): Promise<void> {
-  await db.prepare("DELETE FROM wildcard_rules WHERE id = ?").bind(id).run();
-}
-
 export interface CreateComboInput {
   name: string;
   strategy: StrategyId;
@@ -920,6 +830,7 @@ export interface CreateComboInput {
   timeoutMs?: number;
   maxConcurrency?: number;
   sticky?: StickyConfig;
+  priority?: number;
   enabled?: boolean;
 }
 
@@ -935,6 +846,7 @@ export async function createCombo(db: D1Database, input: CreateComboInput): Prom
     ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
     ...(input.maxConcurrency === undefined ? {} : { maxConcurrency: input.maxConcurrency }),
     ...(input.sticky === undefined ? {} : { sticky: input.sticky }),
+    priority: input.priority ?? 100,
     enabled: input.enabled ?? true,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -947,8 +859,8 @@ export async function replaceCombo(db: D1Database, record: ComboRecord): Promise
   await db
     .prepare(
       `INSERT OR REPLACE INTO combos
-        (id, name, description, strategy, nodes, judge_model, timeout_ms, max_concurrency, sticky, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, name, description, strategy, nodes, judge_model, timeout_ms, max_concurrency, sticky, priority, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       record.id,
@@ -960,6 +872,7 @@ export async function replaceCombo(db: D1Database, record: ComboRecord): Promise
       record.timeoutMs ?? null,
       record.maxConcurrency ?? null,
       record.sticky === undefined ? null : JSON.stringify(record.sticky),
+      record.priority ?? 100,
       record.enabled ? 1 : 0,
       record.createdAt,
       record.updatedAt,

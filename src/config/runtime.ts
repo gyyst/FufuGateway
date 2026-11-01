@@ -1,13 +1,34 @@
 import { compareGlobSpecificity, compileGlob } from "../router/glob";
+import type { ComboRecord } from "../combo/types";
 import type {
-  CompiledWildcardRule,
+  CompiledGlobCombo,
   ConfigSnapshotData,
+  LegacyWildcardRule,
   ModelRecord,
   ProviderAccountRecord,
   ProviderRecord,
   RuntimeConfig,
 } from "./types";
 import { providerModelKey } from "./types";
+
+function hasGlobChars(name: string): boolean {
+  return name.includes("*") || name.includes("?");
+}
+
+/** 旧快照中的通配符规则在运行时等价为一个 glob Combo。 */
+function legacyWildcardToCombo(rule: LegacyWildcardRule): ComboRecord {
+  return {
+    id: rule.id,
+    name: rule.pattern,
+    ...(rule.description === undefined ? {} : { description: rule.description }),
+    strategy: rule.strategy,
+    nodes: rule.targets,
+    priority: rule.priority,
+    enabled: rule.enabled,
+    createdAt: rule.createdAt,
+    updatedAt: rule.updatedAt,
+  };
+}
 
 export interface RuntimeMeta {
   version: number;
@@ -47,15 +68,20 @@ export function buildRuntimeConfig(data: ConfigSnapshotData, meta: RuntimeMeta):
   const aliasesByName = new Map(data.aliases.map((alias) => [alias.name.toLowerCase(), alias]));
   const combosByName = new Map(data.combos.map((combo) => [combo.name.toLowerCase(), combo]));
 
-  const wildcards: CompiledWildcardRule[] = data.wildcards.map((rule) => ({
-    rule,
-    compiled: compileGlob(rule.pattern),
-  }));
-  wildcards.sort((a, b) => {
-    if (a.rule.priority !== b.rule.priority) return b.rule.priority - a.rule.priority;
+  const comboList: ComboRecord[] = [...data.combos];
+  for (const rule of data.wildcards ?? []) {
+    comboList.push(legacyWildcardToCombo(rule));
+  }
+  const globCombos: CompiledGlobCombo[] = comboList
+    .filter((combo) => hasGlobChars(combo.name))
+    .map((combo) => ({ combo, compiled: compileGlob(combo.name) }));
+  globCombos.sort((a, b) => {
+    const priorityA = a.combo.priority ?? 100;
+    const priorityB = b.combo.priority ?? 100;
+    if (priorityA !== priorityB) return priorityB - priorityA;
     const specificity = compareGlobSpecificity(a.compiled, b.compiled);
     if (specificity !== 0) return specificity;
-    return a.rule.id.localeCompare(b.rule.id);
+    return a.combo.id.localeCompare(b.combo.id);
   });
 
   const accountsByProvider = new Map<string, ProviderAccountRecord[]>();
@@ -89,7 +115,7 @@ export function buildRuntimeConfig(data: ConfigSnapshotData, meta: RuntimeMeta):
     modelByProviderModel,
     aliasesByName,
     combosByName,
-    wildcards,
+    globCombos,
     accountsByProvider,
     pricingByProviderModel,
     settings: data.settings,

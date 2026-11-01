@@ -169,7 +169,7 @@ export async function setupStatusHandler(c: Context<AppEnv>): Promise<Response> 
           : models > 0
             ? `${models} 个模型已同步/创建，但尚未启用。`
             : "同步上游模型或手动添加模型，并确认能力后启用。",
-      action: { page: "models" },
+      action: { page: "providers" },
     },
     {
       id: "publish",

@@ -76,6 +76,7 @@ function combo(name: string, nodes: ComboRecord["nodes"], overrides: Partial<Com
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,
+    priority: overrides.priority ?? 100,
   };
 }
 
@@ -154,30 +155,51 @@ describe("Combo 归一化", () => {
     expect(root.nodes[0]?.kind).toBe("model");
   });
 
-  it("通配符节点展开为内联组合", () => {
+  it("glob Combo 节点展开为内联组合", () => {
     const config = runtime({
-      wildcards: [
+      combos: [
         {
-          id: "wld",
-          pattern: "claude-*",
+          id: "cmb_glob",
+          name: "claude-*",
           strategy: "weighted_round_robin",
-          targets: ["openai/m1", "backup/m2"],
+          nodes: ["openai/m1", "backup/m2"],
           priority: 100,
           enabled: true,
           createdAt: NOW,
           updatedAt: NOW,
         },
+        combo("wc", [{ combo: "claude-*" }]),
       ],
-      combos: [combo("wc", [{ wildcard: "claude-*" }])],
     });
     const root = resolve(config, "wc");
     expect(root.nodes).toHaveLength(1);
-    const inline = root.nodes[0];
-    expect(inline?.kind).toBe("inline");
-    if (inline?.kind === "inline") {
-      expect(inline.strategy).toBe("weighted_round_robin");
-      expect(inline.nodes).toHaveLength(2);
+    const node = root.nodes[0];
+    expect(node?.kind).toBe("combo");
+    if (node?.kind === "combo") {
+      expect(node.combo.name).toBe("claude-*");
+      expect(node.combo.strategy).toBe("weighted_round_robin");
+      expect(node.combo.nodes).toHaveLength(2);
     }
+  });
+
+  it("旧 wildcard 节点仍按 glob Combo 解析", () => {
+    const config = runtime({
+      combos: [
+        {
+          id: "cmb_glob",
+          name: "claude-*",
+          strategy: "weighted_round_robin",
+          nodes: ["openai/m1", "backup/m2"],
+          priority: 100,
+          enabled: true,
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+        combo("wc", [{ wildcard: "claude-*" }]),
+      ],
+    });
+    const root = resolve(config, "wc");
+    expect(root.nodes).toHaveLength(1);
   });
 
   it("循环引用在归一化阶段被拒绝", () => {

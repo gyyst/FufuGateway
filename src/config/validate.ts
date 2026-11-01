@@ -41,6 +41,10 @@ function issue(
   list.push({ severity, code, message, ...(entityType === undefined ? {} : { entityType }), ...(entityId === undefined ? {} : { entityId }) });
 }
 
+function hasGlobChars(name: string): boolean {
+  return name.includes("*") || name.includes("?");
+}
+
 function targetLabel(target: RouteTargetSpec): string {
   if (typeof target === "string") return target;
   if ("model" in target) return target.model;
@@ -234,7 +238,21 @@ export function validateSnapshot(
 
   for (const combo of data.combos) {
     const lower = combo.name.toLowerCase();
-    if (!VIRTUAL_NAME.test(combo.name)) {
+    const glob = hasGlobChars(combo.name);
+    if (glob) {
+      try {
+        compileGlob(combo.name);
+      } catch (error) {
+        issue(
+          issues,
+          "error",
+          "CONFIG_INVALID",
+          `Combo "${combo.name}" has an invalid glob pattern: ${error instanceof Error ? error.message : "invalid pattern"}`,
+          "combo",
+          combo.id,
+        );
+      }
+    } else if (!VIRTUAL_NAME.test(combo.name)) {
       issue(issues, "error", "CONFIG_INVALID", `Combo name "${combo.name}" is invalid (slashes are not allowed)`, "combo", combo.id);
     }
     if (comboNames.has(lower)) {
@@ -244,11 +262,14 @@ export function validateSnapshot(
     if (!isStrategyId(combo.strategy)) {
       issue(issues, "error", "CONFIG_INVALID", `Combo "${combo.name}" has an invalid strategy`, "combo", combo.id);
     }
-    if (nativeModelIds.has(lower)) {
+    if (!glob && nativeModelIds.has(lower)) {
       issue(issues, "error", "CONFIG_MODEL_CONFLICT", `Combo "${combo.name}" conflicts with a native model ID`, "combo", combo.id);
     }
-    if (providerNames.has(lower)) {
+    if (!glob && providerNames.has(lower)) {
       issue(issues, "error", "CONFIG_MODEL_CONFLICT", `Combo "${combo.name}" conflicts with a provider name`, "combo", combo.id);
+    }
+    if (!Number.isInteger(combo.priority) || combo.priority < 0) {
+      issue(issues, "error", "CONFIG_INVALID", `Combo "${combo.name}" priority must be a non-negative integer`, "combo", combo.id);
     }
     if (combo.sticky && (combo.sticky.ttlSeconds <= 0 || (combo.sticky.mode !== "round_robin" && combo.sticky.mode !== "first_available"))) {
       issue(issues, "error", "CONFIG_INVALID", `Combo "${combo.name}" has invalid sticky settings`, "combo", combo.id);
@@ -261,33 +282,17 @@ export function validateSnapshot(
     }
   }
 
-  // 编译通配符（无效规则不参与目标解析，避免干扰其余校验）
-  for (const rule of data.wildcards) {
+  // 过滤无效 glob 名称，避免构建运行期索引时抛出（错误已记录）。
+  const validCombos = data.combos.filter((combo) => {
+    if (!hasGlobChars(combo.name)) return true;
     try {
-      compileGlob(rule.pattern);
-    } catch (error) {
-      issue(
-        issues,
-        "error",
-        "CONFIG_INVALID",
-        `Wildcard "${rule.pattern}" is invalid: ${error instanceof Error ? error.message : "invalid pattern"}`,
-        "wildcard",
-        rule.id,
-      );
+      compileGlob(combo.name);
+      return true;
+    } catch {
+      return false;
     }
-    if (!isStrategyId(rule.strategy)) {
-      issue(issues, "error", "CONFIG_INVALID", `Wildcard "${rule.pattern}" has an invalid strategy`, "wildcard", rule.id);
-    }
-    if (rule.targets.length === 0) {
-      issue(issues, "error", "CONFIG_INVALID", `Wildcard "${rule.pattern}" has no targets`, "wildcard", rule.id);
-    }
-    if (rule.priority < 0) {
-      issue(issues, "error", "CONFIG_INVALID", `Wildcard "${rule.pattern}" priority must be non-negative`, "wildcard", rule.id);
-    }
-  }
-
-  // 目标解析（使用仅含合法通配符的运行期索引）
-  const validWildcards = data.wildcards.filter((rule) => {
+  });
+  const validLegacyWildcards = (data.wildcards ?? []).filter((rule) => {
     try {
       compileGlob(rule.pattern);
       return true;
@@ -296,7 +301,7 @@ export function validateSnapshot(
     }
   });
   const runtime = buildRuntimeConfig(
-    { ...data, wildcards: validWildcards },
+    { ...data, combos: validCombos, wildcards: validLegacyWildcards },
     { version: 0, checksum: "", createdAt: 0, source: "d1-fallback" },
   );
   const router = new ModelRouter(runtime);
@@ -324,11 +329,6 @@ export function validateSnapshot(
 
   for (const alias of data.aliases) {
     checkTarget(alias.target, alias.enabled, "alias", alias.id, `Alias "${alias.name}"`);
-  }
-  for (const rule of data.wildcards) {
-    for (const target of rule.targets) {
-      checkTarget(target, rule.enabled, "wildcard", rule.id, `Wildcard "${rule.pattern}"`);
-    }
   }
   for (const combo of data.combos) {
     if (combo.strategy === "fusion" && combo.judgeModel === undefined) {
@@ -362,7 +362,7 @@ export function validateSnapshot(
           issues,
           "error",
           "CONFIG_INVALID",
-          `Combo "${combo.name}" node ${index} must specify exactly one of model/alias/wildcard/combo`,
+          `Combo "${combo.name}" node ${index} must specify exactly one of model/alias/combo`,
           "combo",
           combo.id,
         );
@@ -373,7 +373,7 @@ export function validateSnapshot(
   }
 
   issues.push(
-    ...validateCombos(data.combos, data.aliases, data.wildcards, {
+    ...validateCombos(data.combos, data.aliases, {
       maxDepth: data.settings.maxComboDepth,
       maxNodes: data.settings.maxComboNodes,
     }),

@@ -9,6 +9,7 @@ import type { ComboNodeSpec, RouteTargetSpec } from "../combo/types";
 import { normalizeComboNodeTarget } from "../combo/validator";
 import { isProtocolId, PROTOCOL_IDS } from "../ir/common";
 import { isPrivateUpstreamAllowed, sanitizeCustomHeaders, validateUpstreamBaseUrl } from "../security/ssrf";
+import { compileGlob } from "../router/glob";
 import { readJsonObjectBody } from "../gateway/body";
 import {
   listAliases,
@@ -94,8 +95,18 @@ export function validateModelId(modelId: string): void {
   }
 }
 
-export function validateVirtualName(name: string, kind: "alias" | "combo" | "wildcard"): void {
-  if (kind === "wildcard") return;
+export function validateVirtualName(name: string, kind: "alias" | "combo"): void {
+  if (kind === "combo" && (name.includes("*") || name.includes("?"))) {
+    try {
+      compileGlob(name);
+    } catch (error) {
+      throw new GatewayError({
+        code: "INVALID_REQUEST",
+        message: error instanceof Error ? error.message : "Invalid combo glob pattern",
+      });
+    }
+    return;
+  }
   if (!VIRTUAL_NAME.test(name)) {
     throw new GatewayError({
       code: "INVALID_REQUEST",

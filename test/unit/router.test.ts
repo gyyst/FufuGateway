@@ -135,34 +135,33 @@ describe("模型路由优先级", () => {
           updatedAt: NOW,
         },
       ],
-      wildcards: [
-        {
-          id: "wld_1",
-          pattern: "claude-*",
-          strategy: "fallback",
-          targets: ["openai/claude-x"],
-          priority: 10,
-          enabled: true,
-          createdAt: NOW,
-          updatedAt: NOW,
-        },
-        {
-          id: "wld_2",
-          pattern: "claude-sonnet-*",
-          strategy: "fallback",
-          targets: ["backup/gemini-2.5-pro"],
-          priority: 10,
-          enabled: true,
-          createdAt: NOW,
-          updatedAt: NOW,
-        },
-      ],
       combos: [
+        {
+          id: "cmb_glob_1",
+          name: "claude-*",
+          strategy: "fallback",
+          nodes: ["openai/claude-x"],
+          priority: 10,
+          enabled: true,
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+        {
+          id: "cmb_glob_2",
+          name: "claude-sonnet-*",
+          strategy: "fallback",
+          nodes: ["backup/gemini-2.5-pro"],
+          priority: 10,
+          enabled: true,
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
         {
           id: "cmb_1",
           name: "coding-combo",
           strategy: "fallback",
           nodes: ["openai/gpt-5", "backup/gemini-2.5-pro"],
+          priority: 100,
           enabled: true,
           createdAt: NOW,
           updatedAt: NOW,
@@ -214,12 +213,46 @@ describe("模型路由优先级", () => {
     expect(result.match.type).toBe("native");
   });
 
-  it("同优先级下更具体的通配符优先", () => {
+  it("同优先级下更具体的 glob Combo 优先", () => {
     const result = router.resolve("claude-sonnet-4");
-    expect(result.match.type).toBe("wildcard");
-    if (result.match.type === "wildcard") {
+    expect(result.match.type).toBe("combo_glob");
+    if (result.match.type === "combo_glob") {
       expect(result.match.pattern).toBe("claude-sonnet-*");
     }
+  });
+
+  it("精确 Combo 优先于 glob Combo", () => {
+    const exact = new ModelRouter(
+      runtime(
+        baseData({
+          providers: [provider("openai", "openai")],
+          models: [model("openai", "claude-x")],
+          combos: [
+            {
+              id: "cmb_exact",
+              name: "claude-sonnet-4",
+              strategy: "fallback",
+              nodes: ["openai/claude-x"],
+              priority: 100,
+              enabled: true,
+              createdAt: NOW,
+              updatedAt: NOW,
+            },
+            {
+              id: "cmb_glob",
+              name: "claude-*",
+              strategy: "fallback",
+              nodes: ["openai/claude-x"],
+              priority: 1000,
+              enabled: true,
+              createdAt: NOW,
+              updatedAt: NOW,
+            },
+          ],
+        }),
+      ),
+    ).resolve("claude-sonnet-4");
+    expect(exact.match.type).toBe("combo");
   });
 
   it("未匹配模型返回 MODEL_NOT_FOUND", () => {
@@ -251,19 +284,19 @@ describe("模型路由优先级", () => {
   });
 });
 
-describe("通配符虚拟模型", () => {
+describe("glob Combo 虚拟模型", () => {
   it("多目标按策略返回", () => {
     const router = new ModelRouter(
       runtime(
         baseData({
           providers: [provider("p1", "p1"), provider("p2", "p2")],
           models: [model("p1", "m1"), model("p2", "m2")],
-          wildcards: [
+          combos: [
             {
-              id: "wld_multi",
-              pattern: "virtual-*",
+              id: "cmb_multi",
+              name: "virtual-*",
               strategy: "weighted_round_robin",
-              targets: ["p1/m1", "p2/m2"],
+              nodes: ["p1/m1", "p2/m2"],
               priority: 100,
               enabled: true,
               createdAt: NOW,
@@ -274,14 +307,15 @@ describe("通配符虚拟模型", () => {
       ),
     );
     const result = router.resolve("virtual-x");
-    expect(result.plan.kind).toBe("models");
-    if (result.plan.kind === "models") {
-      expect(result.plan.strategy).toBe("weighted_round_robin");
-      expect(result.plan.targets.map((target) => target.providerId)).toEqual(["p1", "p2"]);
+    expect(result.match.type).toBe("combo_glob");
+    expect(result.plan.kind).toBe("combo");
+    if (result.plan.kind === "combo") {
+      expect(result.plan.combo.strategy).toBe("weighted_round_robin");
+      expect(result.plan.combo.nodes).toHaveLength(2);
     }
   });
 
-  it("通配符可以映射到 Combo 并生成内联组合", () => {
+  it("glob Combo 可以映射到其他 Combo", () => {
     const router = new ModelRouter(
       runtime(
         baseData({
@@ -289,21 +323,20 @@ describe("通配符虚拟模型", () => {
           models: [model("p1", "m1")],
           combos: [
             {
-              id: "cmb_x",
+              id: "cmb_inner",
               name: "inner",
               strategy: "fallback",
               nodes: ["p1/m1"],
+              priority: 100,
               enabled: true,
               createdAt: NOW,
               updatedAt: NOW,
             },
-          ],
-          wildcards: [
             {
-              id: "wld_mix",
-              pattern: "mix-*",
+              id: "cmb_mix",
+              name: "mix-*",
               strategy: "race",
-              targets: ["p1/m1", { combo: "inner" }],
+              nodes: ["p1/m1", { combo: "inner" }],
               priority: 100,
               enabled: true,
               createdAt: NOW,
@@ -314,11 +347,14 @@ describe("通配符虚拟模型", () => {
       ),
     );
     const result = router.resolve("mix-x");
-    expect(result.plan.kind).toBe("inline_combo");
-    if (result.plan.kind === "inline_combo") {
-      expect(result.plan.strategy).toBe("race");
-      expect(result.plan.nodes.some((node) => node.kind === "model")).toBe(true);
-      expect(result.plan.nodes.some((node) => node.kind === "combo" && node.comboName === "inner")).toBe(true);
+    expect(result.plan.kind).toBe("combo");
+    if (result.plan.kind === "combo") {
+      expect(result.plan.combo.strategy).toBe("race");
+      expect(
+        result.plan.combo.nodes.some(
+          (node) => typeof node === "object" && node.combo === "inner",
+        ),
+      ).toBe(true);
     }
   });
 
@@ -328,22 +364,22 @@ describe("通配符虚拟模型", () => {
         baseData({
           providers: [provider("p1", "p1"), provider("p2", "p2")],
           models: [model("p1", "m1"), model("p2", "m2")],
-          wildcards: [
+          combos: [
             {
-              id: "wld_specific",
-              pattern: "claude-sonnet-*",
+              id: "cmb_specific",
+              name: "claude-sonnet-*",
               strategy: "fallback",
-              targets: ["p2/m2"],
+              nodes: ["p2/m2"],
               priority: 5,
               enabled: true,
               createdAt: NOW,
               updatedAt: NOW,
             },
             {
-              id: "wld_general",
-              pattern: "claude-*",
+              id: "cmb_general",
+              name: "claude-*",
               strategy: "fallback",
-              targets: ["p1/m1"],
+              nodes: ["p1/m1"],
               priority: 50,
               enabled: true,
               createdAt: NOW,
@@ -354,8 +390,44 @@ describe("通配符虚拟模型", () => {
       ),
     );
     const result = router.resolve("claude-sonnet-4");
-    if (result.match.type === "wildcard") {
+    expect(result.match.type).toBe("combo_glob");
+    if (result.match.type === "combo_glob") {
       expect(result.match.pattern).toBe("claude-*");
     }
+  });
+
+  it("旧 wildcard 目标按 glob Combo 解析", () => {
+    const router = new ModelRouter(
+      runtime(
+        baseData({
+          providers: [provider("p1", "p1")],
+          models: [model("p1", "m1")],
+          combos: [
+            {
+              id: "cmb_legacy",
+              name: "legacy-*",
+              strategy: "fallback",
+              nodes: ["p1/m1"],
+              priority: 100,
+              enabled: true,
+              createdAt: NOW,
+              updatedAt: NOW,
+            },
+            {
+              id: "cmb_uses_legacy",
+              name: "uses-legacy",
+              strategy: "fallback",
+              nodes: [{ wildcard: "legacy-*" }],
+              priority: 100,
+              enabled: true,
+              createdAt: NOW,
+              updatedAt: NOW,
+            },
+          ],
+        }),
+      ),
+    );
+    const result = router.resolve("uses-legacy");
+    expect(result.plan.kind).toBe("combo");
   });
 });

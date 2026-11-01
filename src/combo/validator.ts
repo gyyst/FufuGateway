@@ -1,5 +1,5 @@
 import type { ConfigValidationIssue } from "../config/types";
-import type { AliasRecord, WildcardRuleRecord } from "../config/types";
+import type { AliasRecord } from "../config/types";
 import type { ComboNodeSpec, ComboRecord, RouteTargetSpec, StrategyId } from "./types";
 import { isStrategyId } from "./types";
 
@@ -36,14 +36,12 @@ function specWeight(spec: ComboNodeSpec): number {
 export function validateCombos(
   combos: ComboRecord[],
   aliases: AliasRecord[],
-  wildcards: WildcardRuleRecord[],
   options: ComboValidationOptions,
 ): ConfigValidationIssue[] {
   const issues: ConfigValidationIssue[] = [];
   if (combos.length === 0) return issues;
 
   const aliasMap = new Map(aliases.map((alias) => [alias.name.toLowerCase(), alias]));
-  const wildcardMap = new Map(wildcards.map((rule) => [rule.pattern, rule]));
   const comboMap = new Map(combos.map((combo) => [combo.name.toLowerCase(), combo]));
 
   const collectTarget = (
@@ -66,19 +64,12 @@ export function validateCombos(
       if (!alias) return { combos: [], nodeCount: 1 };
       return collectTarget(alias.target, new Set(seen).add(key), depth + 1);
     }
-    const key = `wildcard:${normalized.wildcard}`;
+    // 兼容旧的 `{ wildcard }` 目标：等价于按名称引用 glob Combo。
+    const key = `combo:${normalized.wildcard.toLowerCase()}`;
     if (seen.has(key)) return { combos: [], nodeCount: 0 };
-    const rule = wildcardMap.get(normalized.wildcard);
-    if (!rule) return { combos: [], nodeCount: 1 };
-    const nextSeen = new Set(seen).add(key);
-    let combosList: string[] = [];
-    let nodes = 0;
-    for (const child of rule.targets) {
-      const result = collectTarget(child, nextSeen, depth + 1);
-      combosList = combosList.concat(result.combos);
-      nodes += result.nodeCount;
-    }
-    return { combos: combosList, nodeCount: nodes };
+    const combo = comboMap.get(normalized.wildcard.toLowerCase());
+    if (!combo) return { combos: [], nodeCount: 1 };
+    return { combos: [normalized.wildcard.toLowerCase()], nodeCount: 1 };
   };
 
   const refGraph = new Map<string, Set<string>>();
@@ -106,7 +97,7 @@ export function validateCombos(
         issues.push({
           severity: "error",
           code: "CONFIG_INVALID",
-          message: `Combo "${combo.name}" node ${index} must specify exactly one of model/alias/wildcard/combo`,
+          message: `Combo "${combo.name}" node ${index} must specify exactly one of model/alias/combo`,
           entityType: "combo",
           entityId: combo.id,
         });
