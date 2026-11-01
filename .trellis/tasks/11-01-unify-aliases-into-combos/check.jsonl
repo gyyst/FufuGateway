@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/11-01-unify-aliases-into-combos/research/alias-baseline.md", "reason": "Verify alias-to-combo behavior, migration and compatibility"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Check migration safety and mapping"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Check routing and validation quality"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Check the removed alias UI and redirects"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check snapshot, runtime, API and UI consistency"}

@@ -73,7 +73,7 @@ Gemini 流式入口，返回 SSE。网关会向上游追加 `alt=sse`。
 
 ### GET /v1/models、GET /v1/models/:id
 
-OpenAI 模型目录。按当前 API Key 的模型/Provider 白名单过滤，返回原生模型、Alias 与 Combo。
+OpenAI 模型目录。按当前 API Key 的模型/Provider 白名单过滤，返回原生模型与 Combo。
 
 ### GET /v1beta/models、GET /v1beta/models/:model
 
@@ -143,14 +143,11 @@ Gemini 模型目录与单个模型查询。
 
 模型创建字段包含 `providerId`、`modelId`、`upstreamModelId`、能力布尔值、`inputModalities`/`outputModalities`、`contextWindow`、`maxOutputTokens`、四类价格与 `enabled`。
 
-### 3.3 Alias
+### 3.3 别名（已合并）
 
-| 方法 | 路径 |
-|------|------|
-| GET/POST | `/admin/aliases` |
-| GET/PUT/DELETE | `/admin/aliases/:id` |
+别名已合并为单节点 Combo（`strategy=fallback`，`nodes=[target]`）。`/admin/aliases*` 端点已移除。
 
-`target` 支持字符串（模型引用）或对象：`{"model":"..."}`、`{"alias":"..."}`、`{"combo":"..."}`。旧配置中的 `{"wildcard":"pattern"}` 仍可解析，等价于引用同名 glob Combo。
+旧配置中的 `{"alias":"..."}` 目标仍可解析，等价于引用同名 Combo；`{"wildcard":"pattern"}` 等价于引用同名 glob Combo。新配置只使用 `{"combo":"..."}`。
 
 ### 3.4 Combo 通配符模式
 

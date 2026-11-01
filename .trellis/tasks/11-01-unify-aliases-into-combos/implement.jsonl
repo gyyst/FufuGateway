@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/11-01-unify-aliases-into-combos/research/alias-baseline.md", "reason": "Alias model, route order, migration and compatibility strategy"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "D1 migration and repository conventions"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality gates for routing and validation"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Zero-build UI conventions for navigation and selectors"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Keep snapshot, runtime, API and UI consistent"}

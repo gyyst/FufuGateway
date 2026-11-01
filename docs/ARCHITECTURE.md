@@ -107,13 +107,13 @@ IR 定义在 `src/ir/`：
 
 1. `provider/model` 前缀精确匹配（Provider 只按名称匹配第一段）。
 2. 原生模型精确匹配；唯一则路由，多条则 `MODEL_AMBIGUOUS`。
-3. Alias / Combo 精确名称匹配（同一命名空间）。
+3. Combo 精确名称匹配（含原别名合并而来的单节点 Combo）。
 4. glob Combo（名称含 `*` 或 `?`）：
    - 排序：`priority` 降序 → 具体度（字面量多、通配符少、段数多）→ Combo ID 升序。
    - 只支持 `*` 与 `?`，编译为锚定正则，不开放用户正则。
 5. 未命中返回 `MODEL_NOT_FOUND`。
 
-发布期冲突检测：Alias/Combo 与原生模型同名、Alias 与 Combo 同名、与 Provider 同名、非法 Pattern、目标不可解析、Combo 循环/深度/节点数超限。
+发布期冲突检测：Combo 与原生模型/Provider 同名、glob Combo 非法、目标不可解析、Combo 循环/深度/节点数超限。
 
 权限约束在解析后应用：模型白名单与 Provider 白名单会过滤候选；Combo 在叶子执行时逐项校验。
 
@@ -124,7 +124,7 @@ IR 定义在 `src/ir/`：
 配置态 Combo 在每次解析时归一化为 `ResolvedCombo` 树：
 
 - 模型引用解析为 `ResolvedTarget`（含能力与价格）。
-- Alias、Wildcard、嵌套 Combo 展开为内联节点。
+- 嵌套 Combo 展开为内联节点；旧 alias/wildcard 目标按同名 Combo 兼容解析。
 - 节点保留 weight、priority、timeoutMs。
 - 循环引用、深度、节点数在归一化阶段再次防御。
 

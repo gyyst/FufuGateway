@@ -10,7 +10,7 @@
 |------|------|
 | 下游协议入口 | OpenAI Chat / OpenAI Responses / Anthropic Messages / Gemini |
 | 上游协议 | 同上，任意组合交叉转换 |
-| 模型路由 | Provider 前缀、原生模型、歧义检测、Alias、Combo（精确 / 通配符） |
+| 模型路由 | Provider 前缀、原生模型、歧义检测、Combo（精确 / 通配符） |
 | Combo 策略 | fallback、round_robin、weighted_round_robin、random、priority、lowest_latency、lowest_cost、race、fusion |
 | 高可用 | 重试、指数退避、Retry-After、首 Token/空闲/总超时、熔断、账户轮换 |
 | 流式 | 字节级增量 SSE、任意 Chunk 切分、UTF-8 边界、取消传播、流内错误事件 |
@@ -29,7 +29,7 @@ API Gateway（Hono）
   ├─ 认证与权限（D1 直读，吊销立即生效）
   ├─ 限流与预算（Durable Objects）
   ├─ 下游 Protocol Adapter ──► Unified IR
-  ├─ Router Engine（前缀 → 原生 → Alias/Combo → Glob）
+  ├─ Router Engine（前缀 → 原生 → Combo → Glob）
   ├─ Combo Engine（策略、嵌套、粘性、执行树）
   ├─ Provider Engine（账户、认证、端点、重试、熔断）
   ├─ 上游 Protocol Adapter ──► 各厂商 HTTP/SSE
@@ -99,7 +99,7 @@ const client = new OpenAI({
 });
 
 const response = await client.chat.completions.create({
-  model: "openai/gpt-5", // 或唯一模型 ID / Alias / Combo
+  model: "openai/gpt-5", // 或唯一模型 ID / Combo
   messages: [{ role: "user", content: "hello" }],
 });
 ```
@@ -160,7 +160,7 @@ npm run deploy:dry-run
 
 - 4×4 协议请求与响应交叉转换、工具调用、多模态、Usage、错误映射。
 - SSE 任意字节切分、CRLF/LF、多行 data、UTF-8 跨 Chunk、取消传播。
-- 路由优先级、歧义、Alias、Glob、权限过滤。
+- 路由优先级、歧义、Combo（含通配符）、权限过滤。
 - Combo 全部策略、嵌套、循环、深度/节点限制、粘性、流式不可拼接。
 - 重试、账户轮换、熔断、首 Token/空闲超时。
 - API Key 生命周期、RPM/TPM/并发/预算、用量幂等与汇总。
