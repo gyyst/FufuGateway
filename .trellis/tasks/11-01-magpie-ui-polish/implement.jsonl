@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/11-01-magpie-ui-polish/research/ui-baseline.md", "reason": "Magpie comparison, local UI findings and implementation facts the UI work must respect"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend guideline index and project conventions for the zero-build admin UI"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse existing pages, form helpers and table patterns before adding new components"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Keep UI shell, static assets, admin API contracts and CSP constraints consistent"}

@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/11-01-magpie-ui-polish/research/ui-baseline.md", "reason": "Verify the implementation against the observed UI problems and compatibility facts"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Check zero-build UI quality rules and forbidden patterns"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Check for duplicated rendering, escaping or event-binding logic"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check that HTML shell, CSP, static assets and admin API contracts stay consistent"}
