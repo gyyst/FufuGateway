@@ -1,10 +1,6 @@
 // 路由轨迹、执行树与 Combo 计划的可视化渲染。输入为后端只读数据，所有文本转义。
 
-function esc(value) {
-  return String(value === undefined || value === null ? "" : value).replace(/[&<>"']/g, (ch) => {
-    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
-  });
-}
+import { esc } from "../text.js";
 
 const STATUS_LABELS = {
   ok: "成功",

@@ -1,11 +1,7 @@
 // 零依赖的可搜索选择器：输入过滤、分组、键盘导航、单选/多选。
 // 表单值统一写入隐藏 input，因此沿用现有 readForm 的取值方式。
 
-function esc(value) {
-  return String(value === undefined || value === null ? "" : value).replace(/[&<>"']/g, (ch) => {
-    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
-  });
-}
+import { esc } from "../text.js";
 
 function normalizeEntries(entries) {
   return (entries || []).map((entry) => ({

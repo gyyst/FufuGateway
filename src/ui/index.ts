@@ -47,6 +47,7 @@ const HTML = `<!doctype html>
           <span id="breaker-state" class="status-chip">熔断 --</span>
           <span id="status-dot" class="dot"></span>
           <span id="status-text">未连接</span>
+          <button id="palette-toggle" class="btn ghost small-btn" type="button" aria-label="打开命令面板（Ctrl+K）">搜索 <span class="kbd">Ctrl K</span></button>
           <button id="theme-toggle" class="btn ghost small-btn" type="button">浅色</button>
         </div>
       </header>

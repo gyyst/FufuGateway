@@ -1,5 +1,6 @@
 import { barSeries, sparkline } from "./js/components/charts.js";
 import { bindComboboxes, comboboxHtml } from "./js/components/combobox.js";
+import { initCommandPalette } from "./js/components/palette.js";
 import {
   renderExecutionTree,
   renderExplainResult,
@@ -938,6 +939,60 @@ import { initThemeToggle } from "./js/theme.js";
     return found ? found[0] : "overview";
   }
 
+  let pendingListQuery = "";
+
+  function goToList(page, query) {
+    pendingListQuery = query || "";
+    if (activePage() === page) {
+      route();
+    } else {
+      location.hash = "#/" + page;
+    }
+  }
+
+  function commandItems() {
+    if (!state.token) return [];
+    const items = PAGES.map(([key, label]) => ({
+      group: "页面",
+      label,
+      description: "跳转到 " + label,
+      words: (key + " " + label).toLowerCase(),
+      run: () => {
+        location.hash = "#/" + key;
+      },
+    }));
+    const push = (group, label, description, words, page, query) => {
+      items.push({
+        group,
+        label,
+        description,
+        words: (label + " " + (description || "") + " " + (words || "")).toLowerCase(),
+        run: () => goToList(page, query),
+      });
+    };
+    state.providers.forEach((provider) => {
+      push("Provider", provider.name, provider.type, provider.id, "providers", provider.name);
+    });
+    state.models.forEach((model) => {
+      const label = providerName(model.providerId) + " / " + model.modelId;
+      push("模型", label, model.modelId, model.upstreamModelId || "", "models", model.modelId);
+    });
+    state.aliases.forEach((alias) => {
+      push("别名", alias.name, JSON.stringify(alias.target || ""), alias.id, "aliases", alias.name);
+    });
+    state.combos.forEach((combo) => {
+      push("Combo", combo.name, combo.strategy, combo.id, "combos", combo.name);
+    });
+    state.wildcards.forEach((rule) => {
+      push("通配符", rule.pattern, rule.strategy, rule.id, "wildcards", rule.pattern);
+    });
+    state.users.forEach((user) => {
+      const label = user.email || user.displayName || user.id;
+      push("用户", label, user.role, user.id, "users", label);
+    });
+    return items;
+  }
+
   let statusRefreshedAt = 0;
 
   async function refreshStatusBar() {
@@ -1692,6 +1747,173 @@ import { initThemeToggle } from "./js/theme.js";
     }
   }
 
+  function healthRow(name, state, failures, windowFailures, windowTotal) {
+    const ok = state === "closed";
+    return (
+      '<div class="health-row"><span class="trace-status ' +
+      (ok ? "ok" : "bad") +
+      '"></span><span class="health-name mono">' +
+      esc(name || "-") +
+      '</span><span class="badge ' +
+      (ok ? "ok" : "bad") +
+      '">' +
+      esc(state || "-") +
+      '</span><span class="health-meta">连续失败 ' +
+      esc(failures === undefined ? 0 : failures) +
+      " · 窗口 " +
+      esc(windowFailures === undefined ? 0 : windowFailures) +
+      "/" +
+      esc(windowTotal === undefined ? 0 : windowTotal) +
+      "</span></div>"
+    );
+  }
+
+  function renderProviderHealth(provider) {
+    const state = provider.providerState || {};
+    const accounts = Array.isArray(provider.accounts) ? provider.accounts : [];
+    const models = Array.isArray(provider.models) ? provider.models : [];
+    return (
+      '<div class="trace-section"><h4>Provider</h4><div class="health-list">' +
+      healthRow(
+        provider.providerName || state.name || provider.providerId,
+        state.state,
+        state.consecutiveFailures,
+        state.windowFailures,
+        state.windowTotal,
+      ) +
+      "</div></div>" +
+      '<div class="trace-section"><h4>账户 · ' +
+      accounts.length +
+      "</h4>" +
+      (accounts.length
+        ? '<div class="health-list">' +
+          accounts
+            .map((account) =>
+              healthRow(
+                account.name || account.id,
+                account.state,
+                account.consecutiveFailures,
+                account.windowFailures,
+                account.windowTotal,
+              ),
+            )
+            .join("") +
+          "</div>"
+        : '<p class="hint">暂无账户。</p>') +
+      "</div>" +
+      '<div class="trace-section"><h4>模型 · ' +
+      models.length +
+      "</h4>" +
+      (models.length
+        ? '<div class="health-list">' +
+          models
+            .map((model) =>
+              healthRow(
+                model.name || model.id,
+                model.state,
+                model.consecutiveFailures,
+                model.windowFailures,
+                model.windowTotal,
+              ),
+            )
+            .join("") +
+          "</div>"
+        : '<p class="hint">暂无模型。</p>') +
+      "</div>"
+    );
+  }
+
+  async function openProviderHealth(row) {
+    try {
+      const response = await api("/admin/health/breakers");
+      const list = unwrapData(response) || [];
+      const provider = list.find((item) => item.providerId === row.id);
+      if (!provider) {
+        modal("Provider 健康 · " + row.name, '<p class="hint">健康数据中未找到该 Provider。</p>');
+        return;
+      }
+      modal("Provider 健康 · " + row.name, renderProviderHealth(provider));
+    } catch (error) {
+      notify(error.message, "bad");
+    }
+  }
+
+  function todayUtc() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function monthStartUtc() {
+    return todayUtc().slice(0, 7) + "-01";
+  }
+
+  function budgetCard(label, spent, budget, failed) {
+    if (failed) {
+      return (
+        '<div class="card"><h3>' + esc(label) + '</h3><p class="error-text">用量不可用。</p></div>'
+      );
+    }
+    if (!budget) {
+      return (
+        '<div class="card"><h3>' +
+        esc(label) +
+        '</h3><div class="metric">' +
+        fmtUsd(spent) +
+        '</div><p class="hint">未设置预算。</p></div>'
+      );
+    }
+    const percent = budget > 0 ? (spent / budget) * 100 : 0;
+    const over = percent > 100;
+    return (
+      '<div class="card"><h3>' +
+      esc(label) +
+      '</h3><div class="metric">' +
+      fmtUsd(spent) +
+      " <small>上限 " +
+      fmtUsd(budget) +
+      '</small></div><div class="bar-track budget-track"><div class="bar-fill' +
+      (over ? " over" : "") +
+      '" style="width:' +
+      Math.min(100, percent).toFixed(1) +
+      '%"></div></div><p class="hint' +
+      (over ? " error-text" : "") +
+      '">' +
+      percent.toFixed(1) +
+      "% · 剩余 " +
+      fmtUsd(Math.max(0, budget - spent)) +
+      "</p></div>"
+    );
+  }
+
+  async function openBudgetDetail(options) {
+    const today = todayUtc();
+    const monthStart = monthStartUtc();
+    const query = (from, to) => {
+      const params = ["from=" + from, "to=" + to, "groupBy=day"];
+      if (options.userId) params.push("userId=" + encodeURIComponent(options.userId));
+      if (options.apiKeyId) params.push("apiKeyId=" + encodeURIComponent(options.apiKeyId));
+      return "/admin/usage/summary?" + params.join("&");
+    };
+    const [todayResult, monthResult] = await Promise.allSettled([
+      api(query(today, today)),
+      api(query(monthStart, today)),
+    ]);
+    const spentOf = (result) => {
+      if (result.status !== "fulfilled") return null;
+      const data = unwrapData(result.value) || {};
+      return (data.totals || {}).costUsd || 0;
+    };
+    const todaySpent = spentOf(todayResult);
+    const monthSpent = spentOf(monthResult);
+    modal(
+      options.title || "预算",
+      '<div class="grid cols-2">' +
+        budgetCard("今日", todaySpent || 0, options.dailyBudgetUsd, todaySpent === null) +
+        budgetCard("本月", monthSpent || 0, options.monthlyBudgetUsd, monthSpent === null) +
+        "</div>" +
+        '<p class="hint">用量按 UTC 日统计；预算为只读展示。</p>',
+    );
+  }
+
   function crudPage(entity) {
     return async (root) => {
       await ensureLookups();
@@ -1833,6 +2055,12 @@ import { initThemeToggle } from "./js/theme.js";
           listState.page = 1;
           renderList();
         };
+      }
+      if (pendingListQuery) {
+        listState.query = pendingListQuery;
+        pendingListQuery = "";
+        const search = $("#list-search", root);
+        if (search) search.value = listState.query;
       }
       renderList();
     };
@@ -2025,6 +2253,11 @@ import { initThemeToggle } from "./js/theme.js";
         { label: "优先级", key: "priority" },
       ],
       actions: [
+        {
+          key: "health",
+          label: "健康",
+          run: (row) => openProviderHealth(row),
+        },
         {
           key: "setup",
           label: "设置",
@@ -2287,6 +2520,19 @@ import { initThemeToggle } from "./js/theme.js";
             if (row.dailyBudgetUsd) parts.push("日预算 " + fmtUsd(row.dailyBudgetUsd));
             return esc(parts.join(" · ") || "-");
           },
+        },
+      ],
+      actions: [
+        {
+          key: "budget",
+          label: "预算",
+          run: (row) =>
+            openBudgetDetail({
+              title: "用户预算 · " + (row.email || row.displayName || row.id),
+              userId: row.id,
+              dailyBudgetUsd: row.dailyBudgetUsd,
+              monthlyBudgetUsd: row.monthlyBudgetUsd,
+            }),
         },
       ],
     },
@@ -2807,7 +3053,20 @@ import { initThemeToggle } from "./js/theme.js";
             render: (row) => esc(row.lastUsedAt ? fmtTime(row.lastUsedAt) : "-"),
           },
         ],
-        actions: [{ key: "rotate", label: "轮换" }],
+        actions: [
+          { key: "rotate", label: "轮换", run: (row) => rotateKey(row) },
+          {
+            key: "budget",
+            label: "预算",
+            run: (row) =>
+              openBudgetDetail({
+                title: "API Key 预算 · " + row.name,
+                apiKeyId: row.id,
+                dailyBudgetUsd: row.dailyBudgetUsd,
+                monthlyBudgetUsd: row.monthlyBudgetUsd,
+              }),
+          },
+        ],
         empty: {
           title: "还没有 API Key",
           text: "创建用户和 API Key 后，客户端才能调用网关。明文 Key 只在创建或轮换时显示一次。",
@@ -2907,9 +3166,8 @@ import { initThemeToggle } from "./js/theme.js";
               removeEntity(entity, key);
               return;
             }
-            if (action === "rotate") {
-              rotateKey(key);
-            }
+            const definition = (entity.actions || []).find((item) => item.key === action);
+            if (definition && typeof definition.run === "function") definition.run(key);
           };
         });
         bindListControls(body, listState, renderList);
@@ -2937,6 +3195,12 @@ import { initThemeToggle } from "./js/theme.js";
           listState.page = 1;
           renderList();
         };
+      }
+      if (pendingListQuery) {
+        listState.query = pendingListQuery;
+        pendingListQuery = "";
+        const search = $("#list-search", root);
+        if (search) search.value = listState.query;
       }
       renderList();
     })();
@@ -4072,6 +4336,15 @@ import { initThemeToggle } from "./js/theme.js";
     renderNav();
     initThemeToggle($("#theme-toggle"));
     initNavDrawer();
+    initCommandPalette({
+      button: $("#palette-toggle"),
+      prepare: async () => {
+        if (!state.token) return;
+        await ensureLookups();
+        await ensureRouteLookups();
+      },
+      getItems: commandItems,
+    });
     $("#modal-close").onclick = closeModal;
     $("#modal").addEventListener("click", (event) => {
       if (event.target === $("#modal")) closeModal();

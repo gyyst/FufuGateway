@@ -1,9 +1,5 @@
 // 无依赖的 SVG 迷你图表。数据全部由调用方传入，空数据返回空串。
-function escAttr(value) {
-  return String(value === undefined || value === null ? "" : value).replace(/[&<>"']/g, (ch) => {
-    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
-  });
-}
+import { esc } from "../text.js";
 
 export function sparkline(values, options = {}) {
   const data = (values || []).map(Number).filter((value) => Number.isFinite(value));
@@ -41,7 +37,7 @@ export function sparkline(values, options = {}) {
     " " +
     height +
     '" preserveAspectRatio="none" role="img" aria-label="' +
-    escAttr(options.label || "趋势") +
+    esc(options.label || "趋势") +
     '"><path class="spark-area" d="' +
     area +
     '"/><path class="spark-line" d="' +
@@ -79,7 +75,7 @@ export function barSeries(items, options = {}) {
         '" height="' +
         barHeight +
         '"><title>' +
-        escAttr(item.title || item.label + " · " + format(value)) +
+        esc(item.title || item.label + " · " + format(value)) +
         "</title></rect>"
       );
     })
@@ -90,7 +86,7 @@ export function barSeries(items, options = {}) {
     " " +
     height +
     '" preserveAspectRatio="none" role="img" aria-label="' +
-    escAttr(options.label || "趋势") +
+    esc(options.label || "趋势") +
     '">' +
     bars +
     '<line class="series-axis" x1="' +
