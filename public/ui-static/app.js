@@ -1,3 +1,8 @@
+import { sparkline } from "./js/components/charts.js";
+import { bindComboboxes, comboboxHtml } from "./js/components/combobox.js";
+import { NAV_GROUPS } from "./js/nav.js";
+import { initThemeToggle } from "./js/theme.js";
+
 (() => {
   "use strict";
 
@@ -16,22 +21,7 @@
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
-  const PAGES = [
-    ["setup", "快速开始"],
-    ["overview", "概览"],
-    ["providers", "Provider"],
-    ["models", "模型"],
-    ["aliases", "别名"],
-    ["wildcards", "通配符"],
-    ["combos", "Combo"],
-    ["keys", "API Key"],
-    ["users", "用户"],
-    ["pricing", "价格表"],
-    ["usage", "用量与请求"],
-    ["diagnostics", "路由诊断"],
-    ["connect", "客户端接入"],
-    ["config", "配置与审计"],
-  ];
+  const PAGES = NAV_GROUPS.flatMap((group) => group.items);
 
   const PROVIDER_TYPES = ["OPENAI_COMPATIBLE", "ANTHROPIC", "GOOGLE_GEMINI", "CUSTOM"];
   const PROTOCOLS = [
@@ -182,6 +172,7 @@
       entries.push({
         value,
         label: provider.name + " / " + model.modelId + suffix,
+        group: provider.name,
         disabled: providerDisabled || modelDisabled,
       });
     }
@@ -197,6 +188,7 @@
     const entries = allModelEntries().map((entry) => ({
       value: JSON.stringify(entry.value),
       label: "模型 · " + entry.label,
+      group: "模型",
     }));
     const seen = new Set(entries.map((entry) => entry.value));
     for (const alias of state.aliases) {
@@ -205,7 +197,7 @@
       const value = JSON.stringify({ alias: alias.name });
       if (seen.has(value)) continue;
       seen.add(value);
-      entries.push({ value, label: "别名 · " + alias.name });
+      entries.push({ value, label: "别名 · " + alias.name, group: "别名" });
     }
     for (const combo of state.combos) {
       if (combo.enabled === false) continue;
@@ -213,7 +205,7 @@
       const value = JSON.stringify({ combo: combo.name });
       if (seen.has(value)) continue;
       seen.add(value);
-      entries.push({ value, label: "Combo · " + combo.name });
+      entries.push({ value, label: "Combo · " + combo.name, group: "Combo" });
     }
     for (const rule of state.wildcards) {
       if (rule.enabled === false) continue;
@@ -221,7 +213,7 @@
       const value = JSON.stringify({ wildcard: rule.pattern });
       if (seen.has(value)) continue;
       seen.add(value);
-      entries.push({ value, label: "通配符 · " + rule.pattern });
+      entries.push({ value, label: "通配符 · " + rule.pattern, group: "通配符" });
     }
     return entries;
   }
@@ -235,6 +227,7 @@
       entries.push({
         value: model.modelId,
         label: model.modelId + " · " + providerName(model.providerId),
+        group: providerName(model.providerId),
       });
     }
     entries.sort((a, b) => a.label.localeCompare(b.label));
@@ -252,7 +245,7 @@
     for (const combo of state.combos) {
       if (seen.has(combo.name)) continue;
       seen.add(combo.name);
-      entries.push({ value: combo.name, label: "Combo · " + combo.name });
+      entries.push({ value: combo.name, label: "Combo · " + combo.name, group: "Combo" });
     }
     return entries;
   }
@@ -261,17 +254,18 @@
     const entries = activeModelEntries().map((entry) => ({
       value: entry.value,
       label: "模型 · " + entry.label,
+      group: "模型",
     }));
     const seen = new Set(entries.map((entry) => entry.value));
     for (const alias of state.aliases) {
       if (alias.enabled === false || seen.has(alias.name)) continue;
       seen.add(alias.name);
-      entries.push({ value: alias.name, label: "别名 · " + alias.name });
+      entries.push({ value: alias.name, label: "别名 · " + alias.name, group: "别名" });
     }
     for (const combo of state.combos) {
       if (combo.enabled === false || seen.has(combo.name)) continue;
       seen.add(combo.name);
-      entries.push({ value: combo.name, label: "Combo · " + combo.name });
+      entries.push({ value: combo.name, label: "Combo · " + combo.name, group: "Combo" });
     }
     return entries;
   }
@@ -322,7 +316,13 @@
     }
     const selected = new Set(selectedValues.map((value) => String(value)));
     return (
-      '<div class="check-list">' +
+      '<div class="check-list-block">' +
+      '<input type="search" class="check-list-search" placeholder="过滤选项" aria-label="过滤选项" data-check-search="' +
+      esc(name) +
+      '">' +
+      '<div class="check-list" data-check-list="' +
+      esc(name) +
+      '">' +
       entries
         .map((entry) => {
           return (
@@ -338,12 +338,35 @@
           );
         })
         .join("") +
-      "</div>"
+      "</div></div>"
     );
+  }
+
+  function bindCheckListSearch(root) {
+    $$(".check-list-search", root).forEach((input) => {
+      const list = input.parentElement && input.parentElement.querySelector(".check-list");
+      if (!list) return;
+      input.oninput = () => {
+        const query = input.value.trim().toLowerCase();
+        $$(".check-item", list).forEach((item) => {
+          const text = item.textContent.toLowerCase();
+          item.classList.toggle("hidden", query !== "" && !text.includes(query));
+        });
+      };
+    });
   }
 
   function routeTargetJson(value) {
     return typeof value === "string" ? JSON.stringify(value) : JSON.stringify(value);
+  }
+
+  function routeTargetLabel(target) {
+    if (!isPlainObject(target)) return String(target || "");
+    if (target.model) return "模型 · " + target.model;
+    if (target.alias) return "别名 · " + target.alias;
+    if (target.combo) return "Combo · " + target.combo;
+    if (target.wildcard) return "通配符 · " + target.wildcard;
+    return routeTargetJson(target);
   }
 
   function selectHtml(name, options, current, placeholder) {
@@ -704,6 +727,7 @@
     return "";
   }
 
+  let comboNodeSeq = 0;
   function comboNodeRowHtml(node, excludeRoute) {
     const extras = isPlainObject(node) ? node : {};
     const target = comboNodeTargetValue(node);
@@ -715,10 +739,13 @@
     const value = (key) => (typeof extras[key] === "number" ? String(extras[key]) : "");
     const strategy = typeof extras.strategy === "string" ? extras.strategy : "";
     return (
-      '<div class="combo-node-row" data-combo-node><label class="field"><span>目标</span>' +
-      '<select data-node-target>' +
-      optionListHtml(entries, target, "选择模型/别名/Combo/通配符", true) +
-      "</select></label>" +
+      '<div class="combo-node-row" data-combo-node><div class="field"><span>目标</span>' +
+      comboboxHtml("combo-target-" + ++comboNodeSeq, entries, target, {
+        required: true,
+        placeholder: "搜索模型/别名/Combo/通配符",
+        attrs: ' data-node-target="1"',
+      }) +
+      "</div>" +
       '<label class="field"><span>权重</span><input data-node-weight type="number" min="1" step="1" value="' +
       esc(value("weight")) +
       '"></label>' +
@@ -801,6 +828,7 @@
       if (!list || !add) continue;
       add.onclick = () => {
         list.insertAdjacentHTML("beforeend", comboNodeRowHtml(null, excludeRoute));
+        bindComboboxes(list);
       };
       editor.addEventListener("click", (event) => {
         const target = event.target;
@@ -809,6 +837,7 @@
         if (row) row.remove();
         if (!list.querySelector("[data-combo-node]")) {
           list.insertAdjacentHTML("beforeend", comboNodeRowHtml(null, excludeRoute));
+          bindComboboxes(list);
         }
       });
     }
@@ -855,9 +884,47 @@
 
   function renderNav() {
     const nav = $("#nav");
-    nav.innerHTML = PAGES.map(([key, label]) => {
-      return '<a href="#/' + key + '" data-page="' + key + '">' + esc(label) + "</a>";
+    nav.innerHTML = NAV_GROUPS.map((group) => {
+      const links = group.items
+        .map(([key, label]) => {
+          return '<a href="#/' + key + '" data-page="' + key + '">' + esc(label) + "</a>";
+        })
+        .join("");
+      return (
+        '<div class="nav-group">' +
+        (group.title ? '<div class="nav-group-title">' + esc(group.title) + "</div>" : "") +
+        links +
+        "</div>"
+      );
     }).join("");
+  }
+
+  function initNavDrawer() {
+    const sidebar = $("#sidebar");
+    const backdrop = $("#nav-backdrop");
+    const toggle = $("#nav-toggle");
+    if (!sidebar || !backdrop || !toggle) return;
+    const close = () => {
+      sidebar.classList.remove("open");
+      backdrop.classList.add("hidden");
+      toggle.setAttribute("aria-expanded", "false");
+    };
+    const open = () => {
+      sidebar.classList.add("open");
+      backdrop.classList.remove("hidden");
+      toggle.setAttribute("aria-expanded", "true");
+    };
+    toggle.onclick = () => {
+      if (sidebar.classList.contains("open")) close();
+      else open();
+    };
+    backdrop.onclick = close;
+    sidebar.addEventListener("click", (event) => {
+      if (event.target.closest("a")) close();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") close();
+    });
   }
 
   function activePage() {
@@ -866,12 +933,57 @@
     return found ? found[0] : "overview";
   }
 
+  let statusRefreshedAt = 0;
+
+  async function refreshStatusBar() {
+    if (Date.now() - statusRefreshedAt < 30000) return;
+    statusRefreshedAt = Date.now();
+    const configEl = $("#config-state");
+    const breakerEl = $("#breaker-state");
+    if (!configEl || !breakerEl) return;
+    const [config, breakers] = await Promise.allSettled([
+      api("/admin/config/current"),
+      api("/admin/health/breakers"),
+    ]);
+    if (config.status === "fulfilled") {
+      const data = config.value.data || config.value || {};
+      const version =
+        data.activeVersion === null || data.activeVersion === undefined
+          ? "未发布"
+          : "v" + data.activeVersion;
+      configEl.textContent = "配置 " + version + (data.pendingChanges ? " · 待发布" : "");
+      configEl.className = "status-chip " + (data.pendingChanges ? "warn" : "ok");
+    } else {
+      configEl.textContent = "配置 --";
+      configEl.className = "status-chip";
+    }
+    if (breakers.status === "fulfilled") {
+      const list = Array.isArray(breakers.value) ? breakers.value : breakers.value.data || [];
+      let open = 0;
+      list.forEach((provider) => {
+        if (provider.providerState && provider.providerState.state !== "closed") open += 1;
+        (provider.accounts || []).forEach((account) => {
+          if (account.state !== "closed") open += 1;
+        });
+        (provider.models || []).forEach((model) => {
+          if (model.state !== "closed") open += 1;
+        });
+      });
+      breakerEl.textContent = open > 0 ? "熔断 " + open : "熔断 0";
+      breakerEl.className = "status-chip " + (open > 0 ? "warn" : "ok");
+    } else {
+      breakerEl.textContent = "熔断 --";
+      breakerEl.className = "status-chip";
+    }
+  }
+
   async function route() {
     if (!state.token) {
       showLogin();
       return;
     }
     showApp();
+    refreshStatusBar();
     const page = activePage();
     state.page = page;
     const label = (PAGES.find(([key]) => key === page) || ["", "概览"])[1];
@@ -902,6 +1014,8 @@
     $("#modal-title").textContent = title;
     const body = $("#modal-body");
     body.innerHTML = bodyHtml;
+    bindComboboxes(body);
+    bindCheckListSearch(body);
     $("#modal").classList.remove("hidden");
     return body;
   }
@@ -976,16 +1090,17 @@
         current === undefined || current === null || current === ""
           ? ""
           : routeTargetJson(current);
-      control =
-        '<select id="' +
-        name +
-        '" name="' +
-        field.name +
-        '"' +
-        (field.required ? " required" : "") +
-        ">" +
-        optionListHtml(routeTargetEntries(field.excludeRoute), currentJson, "选择路由目标", field.required) +
-        "</select>";
+      const baseEntries = routeTargetEntries(field.excludeRoute);
+      const entries =
+        currentJson && !baseEntries.some((entry) => entry.value === currentJson)
+          ? [{ value: currentJson, label: routeTargetLabel(current) + "（当前值）" }, ...baseEntries]
+          : baseEntries;
+      control = comboboxHtml(field.name, entries, currentJson, {
+        required: field.required,
+        label: field.label,
+        placeholder: "搜索模型、别名、Combo 或通配符",
+        emptyText: "暂无模型、别名、Combo 或通配符",
+      });
     } else if (field.type === "modelSelect") {
       const current = fieldValue(field, row, overrides) || "";
       const entries = mergeCurrentEntries(
@@ -993,16 +1108,12 @@
         current === "" ? [] : [current],
         "当前值 · ",
       );
-      control =
-        '<select id="' +
-        name +
-        '" name="' +
-        field.name +
-        '"' +
-        (field.required ? " required" : "") +
-        ">" +
-        optionListHtml(entries, current, "选择模型", field.required) +
-        "</select>";
+      control = comboboxHtml(field.name, entries, current, {
+        required: field.required,
+        label: field.label,
+        placeholder: "搜索模型",
+        emptyText: "暂无可选模型",
+      });
     } else if (field.type === "providerModelSelect") {
       const providerId = row && row.providerId ? row.providerId : state.providers[0] ? state.providers[0].id : "";
       const models = state.models.filter((model) => model.providerId === providerId);
@@ -1405,13 +1516,73 @@
     }
   }
 
-  function tableHtml(entity, rows) {
+  function emptyStateHtml(state) {
+    return (
+      '<div class="table-wrap"><div class="empty-state"><h4>' +
+      esc(state.title || "暂无数据") +
+      "</h4>" +
+      (state.text ? "<p>" + esc(state.text) + "</p>" : "") +
+      (state.actionLabel ? '<button class="btn primary" data-empty-action>' + esc(state.actionLabel) + "</button>" : "") +
+      "</div></div>"
+    );
+  }
+
+  function rowSearchText(entity, row) {
+    const parts = [JSON.stringify(row)];
+    for (const column of entity.columns || []) {
+      if (typeof column.searchValue === "function") {
+        const value = column.searchValue(row);
+        if (value !== undefined && value !== null) parts.push(String(value));
+        continue;
+      }
+      if (!column.key) continue;
+      const raw = row[column.key];
+      if (raw !== undefined && raw !== null) parts.push(String(raw));
+    }
+    parts.push(String(row.id || ""));
+    return parts.join(" ").toLowerCase();
+  }
+
+  function compareValues(a, b) {
+    if (a === undefined || a === null) return 1;
+    if (b === undefined || b === null) return -1;
+    if (typeof a === "number" && typeof b === "number") return a - b;
+    return String(a).localeCompare(String(b));
+  }
+
+  function tableHtml(entity, rows, options) {
+    const opts = options || {};
     if (!rows.length) {
+      if (opts.emptyState) return emptyStateHtml(opts.emptyState);
       return '<div class="table-wrap"><div class="empty">暂无数据</div></div>';
     }
+    const sort = opts.sort || null;
     const head =
       "<tr>" +
-      entity.columns.map((column) => "<th>" + esc(column.label) + "</th>").join("") +
+      entity.columns
+        .map((column) => {
+          const sortable = Boolean(column.key);
+          const active = sort && sort.key === column.key;
+          const indicator = active
+            ? '<span class="sort-indicator">' + (sort.dir > 0 ? "▲" : "▼") + "</span>"
+            : "";
+          return (
+            "<th" +
+            (sortable
+              ? ' class="sortable" tabindex="0" data-sort-key="' +
+                esc(column.key) +
+                '"' +
+                (active
+                  ? ' aria-sort="' + (sort.dir > 0 ? "ascending" : "descending") + '"'
+                  : "")
+              : "") +
+            ">" +
+            esc(column.label) +
+            indicator +
+            "</th>"
+          );
+        })
+        .join("") +
       "<th>操作</th></tr>";
     const body = rows
       .map((row) => {
@@ -1420,7 +1591,10 @@
             let value;
             if (typeof column.render === "function") value = column.render(row);
             else value = esc(row[column.key] === undefined ? "-" : row[column.key]);
-            return "<td" + (column.mono ? ' class="mono"' : "") + ">" + value + "</td>";
+            const classes = [column.mono ? "mono" : "", column.nowrap ? "nowrap" : ""]
+              .filter(Boolean)
+              .join(" ");
+            return "<td" + (classes ? ' class="' + classes + '"' : "") + ">" + value + "</td>";
           })
           .join("");
         const extra = (entity.actions || [])
@@ -1441,7 +1615,7 @@
         return (
           '<tr>' +
           cells +
-          '<td><div class="row-actions"><button class="btn small-btn" data-action="edit" data-id="' +
+          '<td class="cell-actions"><div class="row-actions"><button class="btn small-btn" data-action="edit" data-id="' +
           esc(row.id) +
           '">编辑</button>' +
           extra +
@@ -1454,42 +1628,208 @@
     return '<div class="table-wrap"><table><thead>' + head + "</thead><tbody>" + body + "</tbody></table></div>";
   }
 
+  function paginationHtml(state, total, totalPages) {
+    if (total === 0) return "";
+    return (
+      '<div class="pagination">' +
+      '<button class="btn small-btn" data-page-prev' +
+      (state.page <= 1 ? " disabled" : "") +
+      ">上一页</button>" +
+      "<span>" +
+      state.page +
+      " / " +
+      totalPages +
+      " · 共 " +
+      total +
+      " 条</span>" +
+      '<button class="btn small-btn" data-page-next' +
+      (state.page >= totalPages ? " disabled" : "") +
+      ">下一页</button></div>"
+    );
+  }
+
+  function bindListControls(body, state, render) {
+    $$("th[data-sort-key]", body).forEach((th) => {
+      const activate = () => {
+        const key = th.dataset.sortKey;
+        if (state.sortKey === key) {
+          state.sortDir = -state.sortDir;
+        } else {
+          state.sortKey = key;
+          state.sortDir = 1;
+        }
+        state.page = 1;
+        render();
+      };
+      th.onclick = activate;
+      th.onkeydown = (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          activate();
+        }
+      };
+    });
+    const prev = $("[data-page-prev]", body);
+    if (prev) {
+      prev.onclick = () => {
+        if (state.page > 1) {
+          state.page -= 1;
+          render();
+        }
+      };
+    }
+    const next = $("[data-page-next]", body);
+    if (next) {
+      next.onclick = () => {
+        state.page += 1;
+        render();
+      };
+    }
+  }
+
   function crudPage(entity) {
     return async (root) => {
       await ensureLookups();
       const response = await api(entity.endpoint);
       const rows = response.data || [];
+      const listState = { query: "", sortKey: null, sortDir: 1, page: 1, pageSize: 20 };
+
+      const filteredRows = () => {
+        let list = rows;
+        const query = listState.query.trim().toLowerCase();
+        if (query) {
+          list = list.filter((row) => rowSearchText(entity, row).includes(query));
+        }
+        if (listState.sortKey) {
+          const key = listState.sortKey;
+          const dir = listState.sortDir;
+          list = list.slice().sort((a, b) => compareValues(a[key], b[key]) * dir);
+        }
+        return list;
+      };
+
+      const renderList = () => {
+        const list = filteredRows();
+        const totalPages = Math.max(1, Math.ceil(list.length / listState.pageSize));
+        if (listState.page > totalPages) listState.page = totalPages;
+        const start = (listState.page - 1) * listState.pageSize;
+        const pageRows = list.slice(start, start + listState.pageSize);
+        const body = $("#list-body", root);
+        body.innerHTML =
+          tableHtml(entity, pageRows, {
+            sort: listState.sortKey ? { key: listState.sortKey, dir: listState.sortDir } : null,
+            emptyState:
+              list.length === 0
+                ? listState.query.trim()
+                  ? { title: "没有匹配的记录", text: "调整搜索条件后重试。" }
+                  : entity.empty || { title: "暂无数据" }
+                : null,
+          }) +
+          paginationHtml(listState, list.length, totalPages);
+        const meta = $("#list-meta", root);
+        if (meta) meta.textContent = list.length + " 条";
+        $$("[data-action]", body).forEach((button) => {
+          button.onclick = () => {
+            const row = rows.find((item) => item.id === button.dataset.id);
+            if (!row) return;
+            const action = button.dataset.action;
+            if (action === "edit") {
+              openEntityForm(entity, row);
+              return;
+            }
+            if (action === "delete") {
+              removeEntity(entity, row);
+              return;
+            }
+            const definition = (entity.actions || []).find((item) => item.key === action);
+            if (definition) definition.run(row);
+          };
+        });
+        $$("th[data-sort-key]", body).forEach((th) => {
+          const activate = () => {
+            const key = th.dataset.sortKey;
+            if (listState.sortKey === key) {
+              listState.sortDir = -listState.sortDir;
+            } else {
+              listState.sortKey = key;
+              listState.sortDir = 1;
+            }
+            listState.page = 1;
+            renderList();
+          };
+          th.onclick = activate;
+          th.onkeydown = (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              activate();
+            }
+          };
+        });
+        const prev = $("[data-page-prev]", body);
+        if (prev) {
+          prev.onclick = () => {
+            if (listState.page > 1) {
+              listState.page -= 1;
+              renderList();
+            }
+          };
+        }
+        const next = $("[data-page-next]", body);
+        if (next) {
+          next.onclick = () => {
+            listState.page += 1;
+            renderList();
+          };
+        }
+        const emptyAction = $("[data-empty-action]", body);
+        if (emptyAction) {
+          emptyAction.onclick = () => {
+            if (entity.empty && entity.empty.action === "preset" && entity.presetPicker) {
+              openProviderPresetPicker();
+            } else {
+              openEntityForm(entity, null);
+            }
+          };
+        }
+      };
+
+      const showToolbar = rows.length > 0;
       root.innerHTML =
         '<div class="section-head"><h2>' +
         esc(entity.title) +
         '</h2><div class="actions">' +
-        (entity.presetPicker
-          ? '<button class="btn" data-from-preset>从预设添加</button>'
-          : "") +
+        (entity.presetPicker ? '<button class="btn" data-from-preset>从预设添加</button>' : "") +
         '<button class="btn primary" data-new>新建</button></div></div>' +
         (entity.note ? '<p class="hint">' + esc(entity.note) + "</p>" : "") +
-        tableHtml(entity, rows);
+        (showToolbar
+          ? '<div class="table-toolbar">' +
+            '<input type="search" id="list-search" placeholder="搜索 ' +
+            esc(entity.title) +
+            '" aria-label="搜索">' +
+            '<span class="spacer"></span>' +
+            '<span class="table-meta" id="list-meta"></span>' +
+            '<select id="list-page-size" aria-label="每页条数"><option value="20">20 条/页</option><option value="50">50 条/页</option></select>' +
+            "</div>"
+          : "") +
+        '<div id="list-body"></div>';
+
       $("[data-new]", root).onclick = () => openEntityForm(entity, null);
       if (entity.presetPicker) {
         $("[data-from-preset]", root).onclick = openProviderPresetPicker;
       }
-      $$("[data-action]", root).forEach((button) => {
-        button.onclick = () => {
-          const row = rows.find((item) => item.id === button.dataset.id);
-          if (!row) return;
-          const action = button.dataset.action;
-          if (action === "edit") {
-            openEntityForm(entity, row);
-            return;
-          }
-          if (action === "delete") {
-            removeEntity(entity, row);
-            return;
-          }
-          const definition = (entity.actions || []).find((item) => item.key === action);
-          if (definition) definition.run(row);
+      if (showToolbar) {
+        $("#list-search", root).oninput = () => {
+          listState.query = $("#list-search", root).value;
+          listState.page = 1;
+          renderList();
         };
-      });
+        $("#list-page-size", root).onchange = () => {
+          listState.pageSize = Number($("#list-page-size", root).value) || 20;
+          listState.page = 1;
+          renderList();
+        };
+      }
+      renderList();
     };
   }
 
@@ -1663,14 +2003,20 @@
       endpoint: "/admin/providers",
       fields: providerFields,
       presetPicker: true,
+      empty: {
+        title: "还没有 Provider",
+        text: "从预设添加常见厂商，或手动新建一个兼容端点。添加后还需要账户与模型。",
+        action: "preset",
+        actionLabel: "从预设添加",
+      },
       note: "可以手工新建，也可以从预设添加。添加 Provider 后还需要账户、模型并发布配置。",
       columns: [
-        { label: "名称", key: "name" },
-        { label: "类型", key: "type", mono: true },
-        { label: "协议", key: "protocol", mono: true },
+        { label: "名称", key: "name", nowrap: true },
+        { label: "类型", key: "type", mono: true, nowrap: true },
+        { label: "协议", key: "protocol", mono: true, nowrap: true },
         { label: "Base URL", render: (row) => '<span class="mono tight" title="' + esc(row.baseUrl) + '">' + esc(row.baseUrl) + "</span>" },
         enabledColumn(),
-        { label: "账户", render: (row) => esc((row.enabledAccountCount || 0) + " / " + (row.accountCount || 0)) },
+        { label: "账户", nowrap: true, render: (row) => esc((row.enabledAccountCount || 0) + " / " + (row.accountCount || 0)) },
         { label: "优先级", key: "priority" },
       ],
       actions: [
@@ -1721,9 +2067,19 @@
       title: "模型",
       endpoint: "/admin/models",
       fields: modelFields,
+      empty: {
+        title: "还没有模型",
+        text: "先在 Provider 页同步上游模型，或手动添加模型。同步结果默认禁用，需要确认能力后启用。",
+        action: "new",
+        actionLabel: "新建模型",
+      },
       columns: [
         { label: "模型 ID", key: "modelId", mono: true },
-        { label: "Provider", render: (row) => esc(providerName(row.providerId)) },
+        {
+          label: "Provider",
+          render: (row) => esc(providerName(row.providerId)),
+          searchValue: (row) => providerName(row.providerId),
+        },
         { label: "上游模型", key: "upstreamModelId", mono: true },
         enabledColumn(),
         {
@@ -1769,6 +2125,12 @@
       title: "别名",
       endpoint: "/admin/aliases",
       fields: aliasFields,
+      empty: {
+        title: "还没有别名",
+        text: "为常用模型创建稳定别名，客户端可以忽略上游模型改名。",
+        action: "new",
+        actionLabel: "新建别名",
+      },
       columns: [
         { label: "别名", key: "name", mono: true },
         { label: "目标", render: (row) => '<span class="mono">' + esc(JSON.stringify(row.target)) + "</span>" },
@@ -1780,6 +2142,12 @@
       title: "通配符",
       endpoint: "/admin/wildcards",
       fields: wildcardFields,
+      empty: {
+        title: "还没有通配符规则",
+        text: "用通配符把一批模型映射到多个目标，例如 gpt-* 或 claude-*。",
+        action: "new",
+        actionLabel: "新建通配符",
+      },
       columns: [
         { label: "Pattern", key: "pattern", mono: true },
         { label: "策略", key: "strategy", mono: true },
@@ -1811,6 +2179,12 @@
       title: "Combo",
       endpoint: "/admin/combos",
       fields: comboFields,
+      empty: {
+        title: "还没有 Combo",
+        text: "Combo 把多个模型组合成一个逻辑模型，支持故障转移、轮询、竞速等策略。",
+        action: "new",
+        actionLabel: "新建 Combo",
+      },
       columns: [
         { label: "名称", key: "name", mono: true },
         { label: "策略", key: "strategy", mono: true },
@@ -1856,8 +2230,18 @@
       title: "价格表",
       endpoint: "/admin/pricing",
       fields: pricingFields,
+      empty: {
+        title: "还没有价格配置",
+        text: "为模型配置输入/输出价格后，用量页才能计算费用。",
+        action: "new",
+        actionLabel: "新建价格",
+      },
       columns: [
-        { label: "Provider", render: (row) => esc(providerName(row.providerId)) },
+        {
+          label: "Provider",
+          render: (row) => esc(providerName(row.providerId)),
+          searchValue: (row) => providerName(row.providerId),
+        },
         { label: "上游模型", key: "modelId", mono: true },
         { label: "输入 / 1M", render: (row) => esc(fmtUsd(row.inputPrice)) },
         { label: "输出 / 1M", render: (row) => esc(fmtUsd(row.outputPrice)) },
@@ -1870,8 +2254,18 @@
       title: "用户",
       endpoint: "/admin/users",
       fields: userFields,
+      empty: {
+        title: "还没有用户",
+        text: "创建用户后即可为其签发下游 API Key，并设置模型权限与限流。",
+        action: "new",
+        actionLabel: "新建用户",
+      },
       columns: [
-        { label: "邮箱 / 名称", render: (row) => esc(row.email || row.displayName || row.id) },
+        {
+          label: "邮箱 / 名称",
+          render: (row) => esc(row.email || row.displayName || row.id),
+          searchValue: (row) => [row.email, row.displayName].filter(Boolean).join(" "),
+        },
         { label: "ID", key: "id", mono: true },
         { label: "角色", key: "role" },
         {
@@ -2370,54 +2764,54 @@
       await ensureRouteLookups();
       const response = await api("/admin/api-keys");
       const rows = response.data || [];
-      root.innerHTML =
-        '<div class="section-head"><h2>API Key</h2><div class="actions"><button class="btn primary" data-new>新建 API Key</button></div></div>' +
-        '<p class="hint">明文只在创建或轮换时返回一次；列表仅显示前缀。</p>' +
-        '<div class="table-wrap"><table><thead><tr><th>名称</th><th>前缀</th><th>用户</th><th>状态</th><th>Scopes</th><th>限制</th><th>过期</th><th>最近使用</th><th>操作</th></tr></thead><tbody>' +
-        (rows.length
-          ? rows
-              .map((key) => {
-                const limits = [];
-                if (key.rpmLimit) limits.push("RPM " + key.rpmLimit);
-                if (key.tpmLimit) limits.push("TPM " + key.tpmLimit);
-                if (key.concurrencyLimit) limits.push("并发 " + key.concurrencyLimit);
-                if (key.dailyBudgetUsd) limits.push("日预算 " + fmtUsd(key.dailyBudgetUsd));
-                if (key.monthlyBudgetUsd) limits.push("月预算 " + fmtUsd(key.monthlyBudgetUsd));
-                return (
-                  "<tr><td>" +
-                  esc(key.name) +
-                  '</td><td class="mono">' +
-                  esc(key.keyPrefix) +
-                  "</td><td>" +
-                  esc(userName(key.userId)) +
-                  "</td><td>" +
-                  badge(key.status === "active", key.status) +
-                  '</td><td class="mono">' +
-                  esc((key.scopes || []).join(", ")) +
-                  "</td><td>" +
-                  esc(limits.join(" · ") || "-") +
-                  "</td><td>" +
-                  esc(key.expiresAt ? fmtTime(key.expiresAt) : "-") +
-                  "</td><td>" +
-                  esc(key.lastUsedAt ? fmtTime(key.lastUsedAt) : "-") +
-                  '</td><td><div class="row-actions">' +
-                  '<button class="btn small-btn" data-edit="' +
-                  esc(key.id) +
-                  '">编辑</button>' +
-                  '<button class="btn small-btn" data-rotate="' +
-                  esc(key.id) +
-                  '">轮换</button>' +
-                  '<button class="btn small-btn danger" data-delete="' +
-                  esc(key.id) +
-                  '">删除</button>' +
-                  "</div></td></tr>"
-                );
-              })
-              .join("")
-          : '<tr><td colspan="9" class="empty">暂无 API Key</td></tr>') +
-        "</tbody></table></div>";
+      const listState = { query: "", sortKey: null, sortDir: 1, page: 1, pageSize: 20 };
 
-      $("[data-new]", root).onclick = async () => {
+      const limitText = (key) => {
+        const limits = [];
+        if (key.rpmLimit) limits.push("RPM " + key.rpmLimit);
+        if (key.tpmLimit) limits.push("TPM " + key.tpmLimit);
+        if (key.concurrencyLimit) limits.push("并发 " + key.concurrencyLimit);
+        if (key.dailyBudgetUsd) limits.push("日预算 " + fmtUsd(key.dailyBudgetUsd));
+        if (key.monthlyBudgetUsd) limits.push("月预算 " + fmtUsd(key.monthlyBudgetUsd));
+        return limits.join(" · ") || "-";
+      };
+
+      const entity = {
+        title: "API Key",
+        endpoint: "/admin/api-keys",
+        fields: keyFields,
+        columns: [
+          { label: "名称", key: "name", mono: true },
+          { label: "前缀", key: "keyPrefix", mono: true, nowrap: true },
+          {
+            label: "用户",
+            render: (row) => esc(userName(row.userId)),
+            searchValue: (row) => userName(row.userId),
+          },
+          { label: "状态", render: (row) => badge(row.status === "active", row.status) },
+          { label: "Scopes", render: (row) => esc((row.scopes || []).join(", ")) },
+          { label: "限制", render: (row) => esc(limitText(row)) },
+          {
+            label: "过期",
+            key: "expiresAt",
+            render: (row) => esc(row.expiresAt ? fmtTime(row.expiresAt) : "-"),
+          },
+          {
+            label: "最近使用",
+            key: "lastUsedAt",
+            render: (row) => esc(row.lastUsedAt ? fmtTime(row.lastUsedAt) : "-"),
+          },
+        ],
+        actions: [{ key: "rotate", label: "轮换" }],
+        empty: {
+          title: "还没有 API Key",
+          text: "创建用户和 API Key 后，客户端才能调用网关。明文 Key 只在创建或轮换时显示一次。",
+          action: "new",
+          actionLabel: "新建 API Key",
+        },
+      };
+
+      const openCreateKey = async () => {
         await ensureLookups();
         const body = modal("新建 API Key", formHtml(keyFields, null));
         const form = $("#entity-form", body);
@@ -2436,56 +2830,110 @@
         };
       };
 
-      $$("[data-edit]", root).forEach((button) => {
-        button.onclick = () => {
-          const key = rows.find((item) => item.id === button.dataset.edit);
-          if (!key) return;
-          const body = modal("编辑 API Key", formHtml(keyFields, key));
-          const form = $("#entity-form", body);
-          $("[data-cancel]", form).onclick = closeModal;
-          form.onsubmit = async (event) => {
-            event.preventDefault();
-            try {
-              const payload = readForm(form, keyFields, true);
-              await api("/admin/api-keys/" + key.id, { method: "PUT", body: payload });
-              closeModal();
-              notify("已保存", "ok");
-              await route();
-            } catch (error) {
-              notify(error.message, "bad");
+      const openEditKey = (key) => {
+        const body = modal("编辑 API Key", formHtml(keyFields, key));
+        const form = $("#entity-form", body);
+        $("[data-cancel]", form).onclick = closeModal;
+        form.onsubmit = async (event) => {
+          event.preventDefault();
+          try {
+            const payload = readForm(form, keyFields, true);
+            await api("/admin/api-keys/" + key.id, { method: "PUT", body: payload });
+            closeModal();
+            notify("已保存", "ok");
+            await route();
+          } catch (error) {
+            notify(error.message, "bad");
+          }
+        };
+      };
+
+      const rotateKey = async (key) => {
+        if (!confirm("轮换后将立即吊销旧 Key，是否继续？")) return;
+        try {
+          const result = await api("/admin/api-keys/" + key.id + "/rotate", {
+            method: "POST",
+            body: {},
+          });
+          showPlaintextKey(result.key);
+          await route();
+        } catch (error) {
+          notify(error.message, "bad");
+        }
+      };
+
+      const renderList = () => {
+        let list = rows.filter((row) => {
+          const query = listState.query.trim().toLowerCase();
+          return query === "" || rowSearchText(entity, row).includes(query);
+        });
+        if (listState.sortKey) {
+          const sortKey = listState.sortKey;
+          const dir = listState.sortDir;
+          list = list.slice().sort((a, b) => compareValues(a[sortKey], b[sortKey]) * dir);
+        }
+        const totalPages = Math.max(1, Math.ceil(list.length / listState.pageSize));
+        if (listState.page > totalPages) listState.page = totalPages;
+        const start = (listState.page - 1) * listState.pageSize;
+        const pageRows = list.slice(start, start + listState.pageSize);
+        const body = $("#list-body", root);
+        body.innerHTML =
+          tableHtml(entity, pageRows, {
+            sort: listState.sortKey ? { key: listState.sortKey, dir: listState.sortDir } : null,
+            emptyState:
+              list.length === 0
+                ? listState.query.trim()
+                  ? { title: "没有匹配的记录", text: "调整搜索条件后重试。" }
+                  : entity.empty
+                : null,
+          }) + paginationHtml(listState, list.length, totalPages);
+        const meta = $("#list-meta", root);
+        if (meta) meta.textContent = list.length + " 条";
+        $$("[data-action]", body).forEach((button) => {
+          button.onclick = () => {
+            const key = rows.find((item) => item.id === button.dataset.id);
+            if (!key) return;
+            const action = button.dataset.action;
+            if (action === "edit") {
+              openEditKey(key);
+              return;
+            }
+            if (action === "delete") {
+              removeEntity(entity, key);
+              return;
+            }
+            if (action === "rotate") {
+              rotateKey(key);
             }
           };
-        };
-      });
+        });
+        bindListControls(body, listState, renderList);
+        const emptyAction = $("[data-empty-action]", body);
+        if (emptyAction) emptyAction.onclick = openCreateKey;
+      };
 
-      $$("[data-rotate]", root).forEach((button) => {
-        button.onclick = async () => {
-          if (!confirm("轮换后将立即吊销旧 Key，是否继续？")) return;
-          try {
-            const result = await api("/admin/api-keys/" + button.dataset.rotate + "/rotate", {
-              method: "POST",
-              body: {},
-            });
-            showPlaintextKey(result.key);
-            await route();
-          } catch (error) {
-            notify(error.message, "bad");
-          }
-        };
-      });
+      root.innerHTML =
+        '<div class="section-head"><h2>API Key</h2><div class="actions"><button class="btn primary" data-new>新建 API Key</button></div></div>' +
+        '<p class="hint">明文只在创建或轮换时返回一次；列表仅显示前缀。</p>' +
+        (rows.length
+          ? '<div class="table-toolbar"><input type="search" id="list-search" placeholder="搜索 API Key" aria-label="搜索"><span class="spacer"></span><span class="table-meta" id="list-meta"></span><select id="list-page-size" aria-label="每页条数"><option value="20">20 条/页</option><option value="50">50 条/页</option></select></div>'
+          : "") +
+        '<div id="list-body"></div>';
 
-      $$("[data-delete]", root).forEach((button) => {
-        button.onclick = async () => {
-          if (!confirm("删除该 API Key？")) return;
-          try {
-            await api("/admin/api-keys/" + button.dataset.delete, { method: "DELETE" });
-            notify("已删除", "ok");
-            await route();
-          } catch (error) {
-            notify(error.message, "bad");
-          }
+      $("[data-new]", root).onclick = openCreateKey;
+      if (rows.length) {
+        $("#list-search", root).oninput = () => {
+          listState.query = $("#list-search", root).value;
+          listState.page = 1;
+          renderList();
         };
-      });
+        $("#list-page-size", root).onchange = () => {
+          listState.pageSize = Number($("#list-page-size", root).value) || 20;
+          listState.page = 1;
+          renderList();
+        };
+      }
+      renderList();
     })();
   }
 
@@ -2512,58 +2960,170 @@
     );
   }
 
+  function unwrapData(value) {
+    if (value === undefined || value === null) return value;
+    return value.data !== undefined ? value.data : value;
+  }
+
   async function overviewPage(root) {
-    const [health, summary, config, requests, breakers] = await Promise.all([
+    const results = await Promise.allSettled([
       api("/admin/health"),
       api("/admin/usage/summary?groupBy=day"),
       api("/admin/config/current"),
       api("/admin/requests?limit=8"),
       api("/admin/health/breakers"),
     ]);
-    const totals = summary.data.totals || {};
-    const status = health.data || health;
-    const configData = config.data || {};
+    if (results.some((item) => item.status === "rejected" && item.reason && item.reason.status === 401)) {
+      return;
+    }
+    const [healthR, summaryR, configR, requestsR, breakersR] = results;
+    const health = healthR.status === "fulfilled" ? unwrapData(healthR.value) : null;
+    const summary = summaryR.status === "fulfilled" ? unwrapData(summaryR.value) : null;
+    const config = configR.status === "fulfilled" ? unwrapData(configR.value) : null;
+    const requests = (requestsR.status === "fulfilled" ? unwrapData(requestsR.value) : null) || [];
+    const breakers = breakersR.status === "fulfilled" ? unwrapData(breakersR.value) : null;
+    const totals = (summary && summary.totals) || {};
+    const buckets = (summary && summary.buckets) || [];
+    const errorRate = totals.requests ? (totals.errors || 0) / totals.requests : 0;
+
     const openBreakers = [];
-    (breakers.data || []).forEach((provider) => {
-      provider.accounts.forEach((account) => {
-        if (account.state !== "closed") openBreakers.push(provider.providerName + " / " + account.name + " (" + account.state + ")");
+    (breakers || []).forEach((provider) => {
+      if (provider.providerState && provider.providerState.state !== "closed") {
+        openBreakers.push(
+          provider.providerName + " / Provider (" + provider.providerState.state + ")",
+        );
+      }
+      (provider.accounts || []).forEach((account) => {
+        if (account.state !== "closed") {
+          openBreakers.push(provider.providerName + " / " + account.name + " (" + account.state + ")");
+        }
       });
-      provider.models.forEach((model) => {
-        if (model.state !== "closed") openBreakers.push(provider.providerName + " / " + model.name + " (" + model.state + ")");
+      (provider.models || []).forEach((model) => {
+        if (model.state !== "closed") {
+          openBreakers.push(provider.providerName + " / " + model.name + " (" + model.state + ")");
+        }
       });
     });
 
+    const modelCounts = new Map();
+    requests.forEach((row) => {
+      const name = row.requestedModel || "未知模型";
+      modelCounts.set(name, (modelCounts.get(name) || 0) + 1);
+    });
+    const topModels = Array.from(modelCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+
+    const validation = config && config.validation;
+    const invalid = Boolean(validation && validation.valid === false);
+    const unpublished = Boolean(
+      config && (config.activeVersion === null || config.activeVersion === undefined),
+    );
+    const pending = Boolean(config && config.pendingChanges);
+    const issues = (validation && validation.issues) || [];
+
+    let guide = "";
+    if (invalid || unpublished) {
+      const count = issues.filter((issue) => issue.severity === "error").length;
+      guide =
+        '<div class="callout warn"><strong>' +
+        (invalid ? "配置校验未通过" : "配置尚未发布") +
+        "</strong><p>" +
+        (invalid
+          ? "存在 " + count + " 个错误，发布前请先修复。"
+          : "当前使用 D1 草稿配置，建议完成初始化后发布版本。") +
+        ' <a href="#/setup">前往快速开始</a></p></div>';
+    } else if (pending) {
+      guide =
+        '<div class="callout warn"><strong>有未发布的变更</strong><p>修改只有发布后才会对推理入口生效。<a href="#/config">前往配置与审计</a></p></div>';
+    }
+
+    const requestSeries = buckets.map((bucket) => bucket.requests || 0);
+    const costSeries = buckets.map((bucket) => bucket.costUsd || 0);
+
     root.innerHTML =
+      guide +
       cards([
-        { label: "数据库", value: status.db ? "正常" : "异常" },
+        {
+          label: "数据库",
+          value: health
+            ? health.db
+              ? "正常"
+              : '<span class="metric-error">异常</span>'
+            : '<span class="metric-error">不可用</span>',
+        },
         {
           label: "生效配置",
-          value: configData.activeVersion === null ? "未发布" : "v" + configData.activeVersion,
-          hint: configData.pendingChanges ? "有待发布变更" : "已同步",
+          value: config
+            ? unpublished
+              ? "未发布"
+              : "v" + config.activeVersion
+            : '<span class="metric-error">不可用</span>',
+          hint: config ? (pending ? "有待发布变更" : "已同步") : "",
         },
-        { label: "近 30 天请求", value: fmtNumber(totals.requests) },
-        { label: "近 30 天费用", value: fmtUsd(totals.costUsd) },
+        {
+          label: "近 30 天请求",
+          value: summary ? fmtNumber(totals.requests) : '<span class="metric-error">不可用</span>',
+          hint: summary ? "错误率 " + (errorRate * 100).toFixed(1) + "%" : "",
+        },
+        {
+          label: "近 30 天费用",
+          value: summary ? fmtUsd(totals.costUsd) : '<span class="metric-error">不可用</span>',
+          hint: summary
+            ? "输入 " + fmtNumber(totals.inputTokens) + " · 输出 " + fmtNumber(totals.outputTokens)
+            : "",
+        },
       ]) +
       '<div class="grid cols-2">' +
+      '<div class="card"><h3>请求量趋势</h3><div class="metric">' +
+      (summary ? fmtNumber(totals.requests) : "--") +
+      ' <small>次</small></div>' +
+      (summary && requestSeries.length
+        ? sparkline(requestSeries, { label: "请求量趋势" })
+        : '<p class="hint">暂无趋势数据。</p>') +
+      "</div>" +
+      '<div class="card"><h3>费用趋势</h3><div class="metric">' +
+      (summary ? fmtUsd(totals.costUsd) : "--") +
+      "</div>" +
+      (summary && costSeries.length
+        ? sparkline(costSeries, { label: "费用趋势" })
+        : '<p class="hint">暂无趋势数据。</p>') +
+      "</div>" +
+      "</div>" +
+      '<div class="grid cols-2">' +
       '<div class="card"><h3>熔断状态</h3>' +
-      (openBreakers.length
-        ? '<div class="issue-list">' +
-          openBreakers
-            .slice(0, 12)
-            .map((item) => '<div class="issue warning">' + esc(item) + "</div>")
+      (breakers === null
+        ? '<p class="hint">状态不可用。</p>'
+        : openBreakers.length
+          ? '<div class="issue-list">' +
+            openBreakers
+              .slice(0, 8)
+              .map((item) => '<div class="issue warning">' + esc(item) + "</div>")
+              .join("") +
+            "</div>"
+          : '<p class="hint">所有 Provider、账户与模型均处于 CLOSED。</p>') +
+      "</div>" +
+      '<div class="card"><h3>最近请求模型</h3>' +
+      (topModels.length
+        ? '<div class="rank-list">' +
+          topModels
+            .map(([name, count]) => {
+              return (
+                '<div class="rank-row"><span class="rank-name mono">' +
+                esc(name) +
+                '</span><span class="rank-value">' +
+                count +
+                " 次</span></div>"
+              );
+            })
             .join("") +
           "</div>"
-        : '<p class="hint">所有 Provider、账户与模型均处于 CLOSED。</p>') +
+        : '<p class="hint">暂无请求数据。</p>') +
       "</div>" +
-      '<div class="card"><h3>配置校验</h3><p class="hint">' +
-      (configData.validation && configData.validation.valid
-        ? "当前 D1 配置通过校验。"
-        : "配置存在问题，发布前请检查。") +
-      '</p><a class="btn" href="#/config">前往配置</a></div>' +
       "</div>" +
       '<div class="section-head"><h2>最近请求</h2><div class="actions"><a class="btn" href="#/usage">查看全部</a></div></div>' +
-      requestsTable(requests.data || []);
-    bindRequestDetails(root, requests.data || []);
+      requestsTable(requests);
+    bindRequestDetails(root, requests);
   }
 
   function requestsTable(rows) {
@@ -2622,22 +3182,21 @@
   async function usagePage(root) {
     await ensureLookups();
     await ensureRouteLookups();
-    const modelFilterOptions = nativeModelEntries()
-      .map(
-        (entry) =>
-          '<option value="' + esc(entry.value) + '">' + esc(entry.label) + "</option>",
-      )
-      .join("");
     root.innerHTML =
       '<div class="section-head"><h2>用量汇总</h2><div class="actions">' +
       '<select id="usage-days" class="btn"><option value="7">近 7 天</option><option value="30" selected>近 30 天</option><option value="90">近 90 天</option></select>' +
       '<select id="usage-group" class="btn"><option value="day">按日</option><option value="week">按周</option><option value="month">按月</option></select>' +
       "</div></div><div id=\"usage-summary\"></div>" +
-      '<div class="section-head"><h2>请求日志</h2><div class="actions"><select id="request-model" class="btn"><option value="">全部模型</option>' +
-      modelFilterOptions +
-      "</select></div></div>" +
+      '<div class="section-head"><h2>请求日志</h2><div class="actions">' +
+      comboboxHtml("request-model", nativeModelEntries(), "", {
+        label: "模型筛选",
+        placeholder: "全部模型",
+        emptyText: "暂无模型",
+      }) +
+      "</div></div>" +
       '<div id="usage-requests"></div>';
 
+    bindComboboxes(root);
     const load = async () => {
       const days = Number($("#usage-days").value || 30);
       const groupBy = $("#usage-group").value || "day";
@@ -2687,8 +3246,11 @@
         '<div class="card" style="margin-top:14px"><h3>费用趋势</h3>' +
         bars +
         "</div>";
-      $("#usage-requests").innerHTML = requestsTable(requests.data || []);
-      bindRequestDetails($("#usage-requests"), requests.data || []);
+      const requestRows = requests.data || [];
+      $("#usage-requests").innerHTML = requestRows.length
+        ? requestsTable(requestRows)
+        : '<div class="table-wrap"><div class="empty-state"><h4>还没有请求</h4><p>创建 API Key 并通过客户端发起请求后，这里会显示用量与请求日志。</p><a class="btn" href="#/connect">前往客户端接入</a></div></div>';
+      if (requestRows.length) bindRequestDetails($("#usage-requests"), requestRows);
     };
 
     $("#usage-days").onchange = load;
@@ -2796,11 +3358,14 @@
     root.innerHTML =
       '<div class="section-head"><h2>路由诊断</h2></div>' +
       '<div class="card"><div class="form-grid">' +
-      '<label class="field"><span>模型</span><select id="diag-model"' +
-      (entries.length === 0 ? " disabled" : "") +
-      ">" +
-      optionListHtml(entries, "", entries.length ? "选择模型、别名或 Combo" : "暂无可用模型", false) +
-      "</select></label>" +
+      '<div class="field"><span>模型</span>' +
+      comboboxHtml("diag-model", entries, "", {
+        required: true,
+        label: "模型",
+        placeholder: entries.length ? "搜索模型、别名或 Combo" : "暂无可用模型",
+        emptyText: "暂无可用模型",
+      }) +
+      "</div>" +
       '<label class="field"><span>测试提示词</span><input id="diag-prompt" value="Reply with OK."></label>' +
       '<label class="field"><span>最大输出 Token</span><input id="diag-max" type="number" min="1" max="32" value="16"></label>' +
       '</div><div class="form-actions">' +
@@ -2820,6 +3385,7 @@
         esc(JSON.stringify(data, null, 2)) +
         "</pre></div>";
     };
+    bindComboboxes(root);
     $("#diag-explain", root).onclick = async () => {
       const model = $("#diag-model", root).value.trim();
       if (!model) {
@@ -3218,6 +3784,7 @@
           result.data.unchanged ? "配置无变化，版本 v" + result.data.version + " 保持生效" : "已发布 v" + result.data.version,
           "ok",
         );
+        statusRefreshedAt = 0;
         await route();
       } catch (error) {
         notify(error.message, "bad");
@@ -3238,6 +3805,7 @@
             body: { version: Number(button.dataset.rollback) },
           });
           notify("已回滚", "ok");
+          statusRefreshedAt = 0;
           await route();
         } catch (error) {
           notify(error.message, "bad");
@@ -3269,6 +3837,8 @@
 
   function init() {
     renderNav();
+    initThemeToggle($("#theme-toggle"));
+    initNavDrawer();
     $("#modal-close").onclick = closeModal;
     $("#modal").addEventListener("click", (event) => {
       if (event.target === $("#modal")) closeModal();
@@ -3278,7 +3848,18 @@
       state.token = "";
       state.providers = [];
       state.users = [];
+      statusRefreshedAt = 0;
+      const sidebar = $("#sidebar");
+      const backdrop = $("#nav-backdrop");
+      const toggle = $("#nav-toggle");
+      if (sidebar) sidebar.classList.remove("open");
+      if (backdrop) backdrop.classList.add("hidden");
+      if (toggle) toggle.setAttribute("aria-expanded", "false");
       showLogin();
+      $("#config-state").textContent = "配置 --";
+      $("#config-state").className = "status-chip";
+      $("#breaker-state").textContent = "熔断 --";
+      $("#breaker-state").className = "status-chip";
     };
     $("#login-form").onsubmit = (event) => {
       event.preventDefault();

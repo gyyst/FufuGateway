@@ -10,6 +10,7 @@ const HTML = `<!doctype html>
   <title>FufuGateway 管理台</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/ui-static/app.css">
+  <script src="/ui-static/theme-init.js"></script>
 </head>
 <body>
   <div id="login" class="login-shell">
@@ -27,19 +28,26 @@ const HTML = `<!doctype html>
   </div>
 
   <div id="app" class="app-shell hidden">
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar">
       <div class="brand small">FufuGateway</div>
       <nav id="nav"></nav>
       <div class="sidebar-footer">
         <button id="logout" class="btn ghost small-btn" type="button">退出登录</button>
       </div>
     </aside>
+    <div id="nav-backdrop" class="nav-backdrop hidden"></div>
     <main class="main">
       <header class="topbar">
-        <h1 id="page-title">概览</h1>
+        <div class="topbar-left">
+          <button id="nav-toggle" class="btn ghost small-btn nav-toggle" type="button" aria-label="打开导航" aria-expanded="false">菜单</button>
+          <h1 id="page-title">概览</h1>
+        </div>
         <div class="topbar-actions">
+          <span id="config-state" class="status-chip">配置 --</span>
+          <span id="breaker-state" class="status-chip">熔断 --</span>
           <span id="status-dot" class="dot"></span>
           <span id="status-text">未连接</span>
+          <button id="theme-toggle" class="btn ghost small-btn" type="button">浅色</button>
         </div>
       </header>
       <div id="toast" class="toast hidden"></div>
@@ -58,7 +66,7 @@ const HTML = `<!doctype html>
   </div>
 
   <noscript>此管理台需要启用 JavaScript。</noscript>
-  <script src="/ui-static/app.js" defer></script>
+  <script type="module" src="/ui-static/app.js"></script>
 </body>
 </html>`;
 
