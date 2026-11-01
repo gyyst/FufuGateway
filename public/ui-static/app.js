@@ -1,5 +1,10 @@
-import { sparkline } from "./js/components/charts.js";
+import { barSeries, sparkline } from "./js/components/charts.js";
 import { bindComboboxes, comboboxHtml } from "./js/components/combobox.js";
+import {
+  renderExecutionTree,
+  renderExplainResult,
+  renderRouteTrace,
+} from "./js/components/trace.js";
 import { NAV_GROUPS } from "./js/nav.js";
 import { initThemeToggle } from "./js/theme.js";
 
@@ -2941,9 +2946,12 @@ import { initThemeToggle } from "./js/theme.js";
   // 概览
   // ---------------------------------------------------------------------
 
-  function cards(items) {
+  function cards(items, options) {
+    const columns = options && options.columns ? options.columns : 4;
     return (
-      '<div class="grid cols-4">' +
+      '<div class="grid cols-' +
+      columns +
+      '">' +
       items
         .map((item) => {
           return (
@@ -3159,15 +3167,51 @@ import { initThemeToggle } from "./js/theme.js";
     );
   }
 
+  function requestDetailHtml(data) {
+    if (!data || typeof data !== "object") return '<p class="hint">没有请求详情。</p>';
+    const summary = [
+      ["时间", fmtTime(data.createdAt)],
+      ["状态", data.status || "-"],
+      ["请求模型", data.requestedModel || "-"],
+      ["实际模型", data.actualModel || "-"],
+      ["Provider", data.providerId || "-"],
+      ["账户", data.providerAccountId || "-"],
+      [
+        "协议",
+        (data.sourceProtocol || "-") + (data.targetProtocol ? " → " + data.targetProtocol : ""),
+      ],
+      ["Token", fmtNumber(data.totalTokens || 0)],
+      ["输入 / 输出", fmtNumber(data.inputTokens || 0) + " / " + fmtNumber(data.outputTokens || 0)],
+      ["缓存 / 推理", fmtNumber(data.cachedTokens || 0) + " / " + fmtNumber(data.reasoningTokens || 0)],
+      ["耗时", (data.durationMs || 0) + " ms"],
+      ["费用", fmtUsd((data.actualCost || 0) + (data.estimatedCost || 0))],
+    ];
+    if (data.comboId) summary.push(["Combo", data.comboId]);
+    if (data.errorCode) summary.push(["错误码", data.errorCode]);
+    if (data.httpStatus) summary.push(["HTTP 状态", String(data.httpStatus)]);
+    if (data.retryCount) summary.push(["重试", String(data.retryCount)]);
+    return (
+      '<div class="detail-grid">' +
+      summary
+        .map(
+          ([label, value]) =>
+            '<div><span>' + esc(label) + "</span><strong>" + esc(value) + "</strong></div>",
+        )
+        .join("") +
+      "</div>" +
+      renderRouteTrace(data.routeTrace) +
+      '<details class="raw-json"><summary>原始 JSON</summary><pre class="mono">' +
+      esc(JSON.stringify(data, null, 2)) +
+      "</pre></details>"
+    );
+  }
+
   function bindRequestDetails(root, rows) {
     $$("[data-request]", root).forEach((button) => {
       button.onclick = async () => {
         try {
           const result = await api("/admin/requests/" + button.dataset.request);
-          modal(
-            "请求详情",
-            '<pre class="mono">' + esc(JSON.stringify(result.data, null, 2)) + "</pre>",
-          );
+          modal("请求详情", requestDetailHtml(result.data));
         } catch (error) {
           notify(error.message, "bad");
         }
@@ -3179,6 +3223,55 @@ import { initThemeToggle } from "./js/theme.js";
   // 用量
   // ---------------------------------------------------------------------
 
+  function weekStart(day) {
+    const date = new Date(day + "T00:00:00Z");
+    const offset = (date.getUTCDay() + 6) % 7;
+    date.setUTCDate(date.getUTCDate() - offset);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function buildSeries(buckets, from, to, groupBy) {
+    const byPeriod = new Map((buckets || []).map((bucket) => [bucket.period, bucket]));
+    const periods = [];
+    if (groupBy === "week") {
+      const start = new Date(weekStart(from) + "T00:00:00Z");
+      const end = new Date(weekStart(to) + "T00:00:00Z");
+      for (let day = new Date(start); day <= end; day.setUTCDate(day.getUTCDate() + 7)) {
+        periods.push(day.toISOString().slice(0, 10));
+      }
+    } else if (groupBy === "month") {
+      const end = to.slice(0, 7);
+      const parts = from.slice(0, 7).split("-").map(Number);
+      let year = parts[0];
+      let month = parts[1];
+      while (true) {
+        const key = String(year) + "-" + String(month).padStart(2, "0");
+        periods.push(key);
+        if (key === end) break;
+        month += 1;
+        if (month > 12) {
+          month = 1;
+          year += 1;
+        }
+      }
+    } else {
+      const start = new Date(from + "T00:00:00Z");
+      const end = new Date(to + "T00:00:00Z");
+      for (let day = new Date(start); day <= end; day.setUTCDate(day.getUTCDate() + 1)) {
+        periods.push(day.toISOString().slice(0, 10));
+      }
+    }
+    return periods.slice(-90).map((period) => {
+      const bucket = byPeriod.get(period) || {};
+      return {
+        label: period,
+        requests: bucket.requests || 0,
+        errors: bucket.errors || 0,
+        costUsd: bucket.costUsd || 0,
+      };
+    });
+  }
+
   async function usagePage(root) {
     await ensureLookups();
     await ensureRouteLookups();
@@ -3186,17 +3279,35 @@ import { initThemeToggle } from "./js/theme.js";
       '<div class="section-head"><h2>用量汇总</h2><div class="actions">' +
       '<select id="usage-days" class="btn"><option value="7">近 7 天</option><option value="30" selected>近 30 天</option><option value="90">近 90 天</option></select>' +
       '<select id="usage-group" class="btn"><option value="day">按日</option><option value="week">按周</option><option value="month">按月</option></select>' +
-      "</div></div><div id=\"usage-summary\"></div>" +
+      '</div></div><div id="usage-summary"></div>' +
       '<div class="section-head"><h2>请求日志</h2><div class="actions">' +
       comboboxHtml("request-model", nativeModelEntries(), "", {
         label: "模型筛选",
         placeholder: "全部模型",
         emptyText: "暂无模型",
       }) +
-      "</div></div>" +
+      '</div></div>' +
       '<div id="usage-requests"></div>';
 
     bindComboboxes(root);
+    const chartCard = (title, series, key, formatter) => {
+      return (
+        '<div class="card"><h3>' +
+        esc(title) +
+        "</h3>" +
+        (series.length
+          ? barSeries(
+              series.map((point) => ({
+                label: point.label,
+                value: point[key],
+                title: point.label + " · " + formatter(point[key]),
+              })),
+              { formatter, label: title },
+            )
+          : '<p class="hint">暂无数据</p>') +
+        "</div>"
+      );
+    };
     const load = async () => {
       const days = Number($("#usage-days").value || 30);
       const groupBy = $("#usage-group").value || "day";
@@ -3213,39 +3324,41 @@ import { initThemeToggle } from "./js/theme.js";
         api("/admin/usage/summary?from=" + from + "&to=" + to + "&groupBy=" + groupBy),
         api(requestQuery),
       ]);
-      const data = summary.data;
-      const max = Math.max(1, ...data.buckets.map((bucket) => bucket.costUsd || 0));
-      const bars = data.buckets.length
-        ? '<div class="bars">' +
-          data.buckets
-            .map((bucket) => {
-              const width = Math.max(2, Math.round(((bucket.costUsd || 0) / max) * 100));
-              return (
-                '<div class="bar-row"><span class="mono">' +
-                esc(bucket.period) +
-                '</span><div class="bar-track"><div class="bar-fill" style="width:' +
-                width +
-                '%"></div></div><span class="bar-value">' +
-                esc(fmtUsd(bucket.costUsd)) +
-                " · " +
-                esc(fmtNumber(bucket.requests)) +
-                "</span></div>"
-              );
-            })
-            .join("") +
-          "</div>"
-        : '<div class="empty">暂无数据</div>';
+      const data = summary.data || {};
+      const totals = data.totals || {};
+      const errorRate = totals.requests ? (totals.errors || 0) / totals.requests : 0;
+      const cacheRate = totals.inputTokens ? (totals.cachedTokens || 0) / totals.inputTokens : null;
+      const series = buildSeries(data.buckets || [], data.from || from, data.to || to, groupBy);
+      const hasData = (totals.requests || 0) > 0;
 
       $("#usage-summary").innerHTML =
-        cards([
-          { label: "请求数", value: fmtNumber(data.totals.requests) },
-          { label: "输入 Token", value: fmtNumber(data.totals.inputTokens) },
-          { label: "输出 Token", value: fmtNumber(data.totals.outputTokens) },
-          { label: "费用", value: fmtUsd(data.totals.costUsd) },
-        ]) +
-        '<div class="card" style="margin-top:14px"><h3>费用趋势</h3>' +
-        bars +
-        "</div>";
+        cards(
+          [
+            { label: "请求数", value: fmtNumber(totals.requests) },
+            {
+              label: "错误率",
+              value: (errorRate * 100).toFixed(1) + "%",
+              hint: fmtNumber(totals.errors) + " 次错误",
+            },
+            { label: "总 Token", value: fmtNumber(totals.totalTokens) },
+            {
+              label: "缓存 Token",
+              value: fmtNumber(totals.cachedTokens),
+              hint: cacheRate === null ? "" : "命中率 " + (cacheRate * 100).toFixed(1) + "%",
+            },
+            { label: "推理 Token", value: fmtNumber(totals.reasoningTokens) },
+            { label: "费用", value: fmtUsd(totals.costUsd) },
+          ],
+          { columns: 3 },
+        ) +
+        (hasData
+          ? '<div class="grid cols-3">' +
+            chartCard("请求量", series, "requests", fmtNumber) +
+            chartCard("错误数", series, "errors", fmtNumber) +
+            chartCard("费用", series, "costUsd", fmtUsd) +
+            "</div>"
+          : '<div class="card"><h3>趋势</h3><p class="hint">所选时间范围内暂无请求数据。</p></div>');
+
       const requestRows = requests.data || [];
       $("#usage-requests").innerHTML = requestRows.length
         ? requestsTable(requestRows)
@@ -3351,6 +3464,48 @@ import { initThemeToggle } from "./js/theme.js";
     }
   }
 
+  function renderGatewayTest(data) {
+    if (!data || typeof data !== "object") return '<p class="hint">没有自测结果。</p>';
+    const usage = data.usage || {};
+    const summary = [
+      ["Provider", data.provider || "-"],
+      ["模型", data.modelId || "-"],
+      ["HTTP 状态", data.httpStatus === undefined ? "-" : String(data.httpStatus)],
+      ["延迟", data.latencyMs === undefined ? "-" : data.latencyMs + " ms"],
+      ["重试", data.retryCount === undefined ? "-" : String(data.retryCount)],
+      ["Token", fmtNumber(usage.totalTokens || 0)],
+      ["缓存输入", fmtNumber(usage.cachedInputTokens || 0)],
+      ["推理 Token", fmtNumber(usage.reasoningTokens || 0)],
+    ];
+    const routeTrace = Array.isArray(data.routeTrace) ? data.routeTrace : [];
+    return (
+      '<div class="detail-grid">' +
+      summary
+        .map(
+          ([label, value]) =>
+            '<div><span>' + esc(label) + "</span><strong>" + esc(value) + "</strong></div>",
+        )
+        .join("") +
+      "</div>" +
+      (data.text
+        ? '<div class="trace-section"><h4>回复</h4><pre class="mono">' + esc(data.text) + "</pre></div>"
+        : "") +
+      (data.executionTrace
+        ? '<div class="trace-section"><h4>执行树</h4><ul class="trace-tree">' +
+          renderExecutionTree(data.executionTrace) +
+          "</ul></div>"
+        : "") +
+      (routeTrace.length
+        ? '<div class="trace-section"><h4>路由轨迹</h4><ol class="trace-steps">' +
+          routeTrace.map((step) => "<li>" + esc(step) + "</li>").join("") +
+          "</ol></div>"
+        : "") +
+      '<details class="raw-json"><summary>原始 JSON</summary><pre class="mono">' +
+      esc(JSON.stringify(data, null, 2)) +
+      "</pre></details>"
+    );
+  }
+
   async function diagnosticsPage(root) {
     await ensureLookups();
     await ensureRouteLookups();
@@ -3374,16 +3529,33 @@ import { initThemeToggle } from "./js/theme.js";
       '</div><p class="hint">网关自测会发起一次真实上游请求，可能产生费用；最多 32 个输出 Token。</p></div>' +
       '<div id="diag-result"></div>';
 
+    const showError = (title, error) => {
+      $("#diag-result").innerHTML =
+        '<div class="card"><h3>' +
+        esc(title) +
+        " " +
+        badge(false, "失败") +
+        '</h3><p class="error-text">' +
+        esc(error.message) +
+        "</p>" +
+        (error.payload
+          ? '<details class="raw-json"><summary>原始错误</summary><pre class="mono">' +
+            esc(JSON.stringify(error.payload, null, 2)) +
+            "</pre></details>"
+          : "") +
+        "</div>";
+    };
     const show = (title, data) => {
       const ok = data && data.ok === true;
+      const body = title === "路由解析" ? renderExplainResult(data) : renderGatewayTest(data);
       $("#diag-result").innerHTML =
         '<div class="card"><h3>' +
         esc(title) +
         " " +
         badge(ok, ok ? "成功" : "失败") +
-        '</h3><pre class="mono">' +
-        esc(JSON.stringify(data, null, 2)) +
-        "</pre></div>";
+        "</h3>" +
+        body +
+        "</div>";
     };
     bindComboboxes(root);
     $("#diag-explain", root).onclick = async () => {
@@ -3400,6 +3572,7 @@ import { initThemeToggle } from "./js/theme.js";
         show("路由解析", response.data || response);
       } catch (error) {
         notify(error.message, "bad");
+        showError("路由解析", error);
       }
     };
     $("#diag-test", root).onclick = async () => {
@@ -3419,72 +3592,95 @@ import { initThemeToggle } from "./js/theme.js";
         show("网关自测", response.data || response);
       } catch (error) {
         notify(error.message, "bad");
+        showError("网关自测", error);
       }
     };
-  }
-
-  function connectBlock(id, title, text) {
-    return (
-      '<div class="card connect-block"><div class="section-head"><h3>' +
-      esc(title) +
-      '</h3><button class="btn small-btn" data-copy="' +
-      esc(id) +
-      '">复制</button></div><pre class="mono" id="' +
-      esc(id) +
-      '">' +
-      esc(text) +
-      "</pre></div>"
-    );
   }
 
   function connectPage(root) {
     const origin = location.origin;
     const openaiBase = origin + "/v1";
-    const envText = [
-      "# OpenAI Chat / Responses",
-      "OPENAI_BASE_URL=" + openaiBase,
-      "OPENAI_API_KEY=fufu_sk_...",
-      "",
-      "# Anthropic Messages",
-      "ANTHROPIC_BASE_URL=" + origin,
-      "ANTHROPIC_API_KEY=fufu_sk_...",
-      "",
-      "# Google Gemini",
-      "GOOGLE_GEMINI_BASE_URL=" + origin,
-      "GEMINI_API_KEY=fufu_sk_...",
-    ].join("\n");
-    const curlText = [
-      'curl "' + openaiBase + '/chat/completions" \\',
-      '  -H "Authorization: Bearer $FUFU_API_KEY" \\',
-      '  -H "Content-Type: application/json" \\',
-      '  -d \'{"model":"provider/model","messages":[{"role":"user","content":"Hello"}]}\'',
-    ].join("\n");
-    const pythonText = [
-      "from openai import OpenAI",
-      "",
-      "client = OpenAI(",
-      '    base_url="' + openaiBase + '",',
-      '    api_key="fufu_sk_...",',
-      ")",
-      "response = client.chat.completions.create(",
-      '    model="provider/model",',
-      '    messages=[{"role": "user", "content": "Hello"}],',
-      ")",
-      "print(response.choices[0].message.content)",
-    ].join("\n");
-    const agentText = [
-      "# Claude Code",
-      "export ANTHROPIC_BASE_URL=\"" + origin + "\"",
-      'export ANTHROPIC_AUTH_TOKEN="fufu_sk_..."',
-      "",
-      "# Codex",
-      "export OPENAI_BASE_URL=\"" + openaiBase + "\"",
-      'export OPENAI_API_KEY="fufu_sk_..."',
-      "",
-      "# Gemini CLI",
-      "export GOOGLE_GEMINI_BASE_URL=\"" + origin + "\"",
-      'export GEMINI_API_KEY="fufu_sk_..."',
-    ].join("\n");
+    const placeholderKey = "fufu_sk_...";
+    const clients = [
+      {
+        id: "claude-code",
+        label: "Claude Code",
+        title: "Claude Code",
+        note: "使用 Anthropic 兼容入口；Bearer 与 x-api-key 认证均支持。",
+        content: [
+          "# Claude Code",
+          'export ANTHROPIC_BASE_URL="' + origin + '"',
+          'export ANTHROPIC_AUTH_TOKEN="' + placeholderKey + '"',
+        ].join("\n"),
+      },
+      {
+        id: "codex",
+        label: "Codex",
+        title: "Codex",
+        note: "使用 OpenAI 兼容入口。",
+        content: [
+          "# Codex",
+          'export OPENAI_BASE_URL="' + openaiBase + '"',
+          'export OPENAI_API_KEY="' + placeholderKey + '"',
+        ].join("\n"),
+      },
+      {
+        id: "gemini-cli",
+        label: "Gemini CLI",
+        title: "Gemini CLI",
+        note: "网关提供 Gemini 兼容入口，客户端会自行追加 /v1beta。",
+        content: [
+          "# Gemini CLI",
+          'export GOOGLE_GEMINI_BASE_URL="' + origin + '"',
+          'export GEMINI_API_KEY="' + placeholderKey + '"',
+        ].join("\n"),
+      },
+      {
+        id: "openai-python",
+        label: "OpenAI Python",
+        title: "OpenAI Python SDK",
+        note: "模型名使用 provider/model，或使用已配置的别名与 Combo。",
+        content: [
+          "from openai import OpenAI",
+          "",
+          "client = OpenAI(",
+          '    base_url="' + openaiBase + '",',
+          '    api_key="' + placeholderKey + '",',
+          ")",
+          "response = client.chat.completions.create(",
+          '    model="provider/model",',
+          '    messages=[{"role": "user", "content": "Hello"}],',
+          ")",
+          "print(response.choices[0].message.content)",
+        ].join("\n"),
+      },
+      {
+        id: "openai-curl",
+        label: "curl · OpenAI",
+        title: "curl · OpenAI Chat",
+        note: "最小 Chat Completions 请求。",
+        content: [
+          'curl "' + openaiBase + '/chat/completions" \\',
+          '  -H "Authorization: Bearer $FUFU_API_KEY" \\',
+          '  -H "Content-Type: application/json" \\',
+          '  -d \'{"model":"provider/model","messages":[{"role":"user","content":"Hello"}]}\'',
+        ].join("\n"),
+      },
+      {
+        id: "anthropic-curl",
+        label: "curl · Anthropic",
+        title: "curl · Anthropic Messages",
+        note: "最小 Messages 请求，使用 x-api-key 认证。",
+        content: [
+          'curl "' + origin + '/v1/messages" \\',
+          '  -H "x-api-key: ' + placeholderKey + '" \\',
+          '  -H "anthropic-version: 2023-06-01" \\',
+          '  -H "Content-Type: application/json" \\',
+          '  -d \'{"model":"provider/model","max_tokens":64,"messages":[{"role":"user","content":"Hello"}]}\'',
+        ].join("\n"),
+      },
+    ];
+    let selected = "claude-code";
 
     root.innerHTML =
       '<div class="section-head"><h2>客户端接入</h2></div>' +
@@ -3496,24 +3692,61 @@ import { initThemeToggle } from "./js/theme.js";
       esc(origin) +
       '（客户端自行追加 /v1beta）</p></div>' +
       '<p class="hint">API Key 只在创建或轮换时显示一次。请先到 <a href="#/keys">API Key</a> 页面创建，不要把真实 Key 写入仓库或截图。</p>' +
-      connectBlock("connect-env", "环境变量", envText) +
-      connectBlock("connect-curl", "curl · OpenAI Chat", curlText) +
-      connectBlock("connect-python", "OpenAI Python SDK", pythonText) +
-      connectBlock("connect-agent", "编码代理", agentText) +
+      '<div class="card"><div class="section-head"><h3>选择客户端</h3></div>' +
+      '<div class="segmented" id="connect-tabs" role="tablist">' +
+      clients
+        .map(
+          (client) =>
+            '<button type="button" class="segment' +
+            (client.id === selected ? " active" : "") +
+            '" role="tab" aria-selected="' +
+            (client.id === selected ? "true" : "false") +
+            '" data-connect-client="' +
+            esc(client.id) +
+            '">' +
+            esc(client.label) +
+            "</button>",
+        )
+        .join("") +
+      '</div><div id="connect-panel"></div></div>' +
       '<div class="callout warn"><strong>接入提示</strong><p>不同代理的环境变量名称可能不同；以代理文档为准。网关同时支持 Bearer、x-api-key 和 x-goog-api-key 认证。</p></div>';
 
-    $$("[data-copy]", root).forEach((button) => {
-      button.onclick = async () => {
-        const target = document.getElementById(button.dataset.copy);
-        if (!target) return;
-        try {
-          await navigator.clipboard.writeText(target.textContent || "");
-          notify("已复制", "ok");
-        } catch {
-          notify("复制失败，请手动选择", "bad");
-        }
-      };
+    const renderPanel = () => {
+      const client = clients.find((item) => item.id === selected) || clients[0];
+      const panel = $("#connect-panel", root);
+      panel.innerHTML =
+        '<div class="connect-block"><div class="section-head"><h4>' +
+        esc(client.title) +
+        '</h4><button type="button" class="btn small-btn" data-copy="connect-snippet">复制</button></div>' +
+        (client.note ? '<p class="hint">' + esc(client.note) + "</p>" : "") +
+        '<pre class="mono" id="connect-snippet">' +
+        esc(client.content) +
+        "</pre></div>";
+      const copy = $("[data-copy]", panel);
+      if (copy) {
+        copy.onclick = async () => {
+          try {
+            await navigator.clipboard.writeText(client.content);
+            notify("已复制", "ok");
+          } catch (error) {
+            notify("复制失败，请手动选择", "bad");
+          }
+        };
+      }
+    };
+
+    $("#connect-tabs", root).addEventListener("click", (event) => {
+      const button = event.target.closest("[data-connect-client]");
+      if (!button) return;
+      selected = button.dataset.connectClient;
+      $$(".segment", root).forEach((segment) => {
+        const active = segment.dataset.connectClient === selected;
+        segment.classList.toggle("active", active);
+        segment.setAttribute("aria-selected", String(active));
+      });
+      renderPanel();
     });
+    renderPanel();
   }
 
   // ---------------------------------------------------------------------

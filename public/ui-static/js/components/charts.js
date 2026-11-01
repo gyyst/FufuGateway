@@ -49,3 +49,58 @@ export function sparkline(values, options = {}) {
     '"/></svg>'
   );
 }
+
+// 等宽柱状序列图。items: { label, value, title }[]；空数据返回空串。
+export function barSeries(items, options = {}) {
+  const list = (items || []).filter((item) => item && Number.isFinite(Number(item.value)));
+  if (list.length === 0) return "";
+  const format = typeof options.formatter === "function" ? options.formatter : (value) => String(value);
+  const width = options.width || 320;
+  const height = options.height || 84;
+  const pad = 2;
+  const gap = 2;
+  const max = Math.max(1, ...list.map((item) => Number(item.value)));
+  const rawWidth = (width - pad * 2 - gap * (list.length - 1)) / list.length;
+  const barWidth = Math.max(1, Math.min(40, rawWidth));
+  const bars = list
+    .map((item, index) => {
+      const value = Number(item.value);
+      const barHeight =
+        value > 0 ? Math.max(1, Math.round((value / max) * (height - pad * 2))) : 0;
+      const x = pad + index * (barWidth + gap);
+      const y = height - pad - barHeight;
+      return (
+        '<rect class="series-bar" x="' +
+        x.toFixed(1) +
+        '" y="' +
+        y.toFixed(1) +
+        '" width="' +
+        barWidth.toFixed(1) +
+        '" height="' +
+        barHeight +
+        '"><title>' +
+        escAttr(item.title || item.label + " · " + format(value)) +
+        "</title></rect>"
+      );
+    })
+    .join("");
+  return (
+    '<svg class="series-chart" viewBox="0 0 ' +
+    width +
+    " " +
+    height +
+    '" preserveAspectRatio="none" role="img" aria-label="' +
+    escAttr(options.label || "趋势") +
+    '">' +
+    bars +
+    '<line class="series-axis" x1="' +
+    pad +
+    '" y1="' +
+    (height - pad) +
+    '" x2="' +
+    (width - pad) +
+    '" y2="' +
+    (height - pad) +
+    '"/></svg>'
+  );
+}
