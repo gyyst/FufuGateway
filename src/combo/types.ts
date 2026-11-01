@@ -92,7 +92,6 @@ export interface ResolvedTarget {
 export type RouteMatch =
   | { type: "provider_prefix"; provider: string; model: string }
   | { type: "native"; modelId: string }
-  | { type: "alias"; alias: string; priority: number }
   | { type: "wildcard"; ruleId: string; pattern: string; priority: number }
   | { type: "combo"; comboId: string; comboName: string }
   | { type: "combo_glob"; comboId: string; comboName: string; pattern: string; priority: number };

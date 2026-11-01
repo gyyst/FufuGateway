@@ -135,23 +135,34 @@ describe("Combo 归一化", () => {
     }
   });
 
-  it("Alias 指向 Combo 时直接展开", () => {
+  it("Combo 引用保留嵌套节点", () => {
+    const config = runtime({
+      combos: [combo("inner", ["openai/m1"]), combo("outer", [{ combo: "inner" }])],
+    });
+    const root = resolve(config, "outer");
+    expect(root.name).toBe("outer");
+    expect(root.nodes[0]?.kind).toBe("combo");
+    if (root.nodes[0]?.kind === "combo") {
+      expect(root.nodes[0].combo.name).toBe("inner");
+    }
+  });
+
+  it("旧别名在运行时合成为单节点 Combo", () => {
     const config = runtime({
       aliases: [
         {
           id: "als",
           name: "virtual",
-          target: { combo: "inner" },
+          target: { model: "openai/m1" },
           enabled: true,
           priority: 100,
           createdAt: NOW,
           updatedAt: NOW,
         },
       ],
-      combos: [combo("inner", ["openai/m1"])],
     });
     const root = resolve(config, "virtual");
-    expect(root.name).toBe("inner");
+    expect(root.name).toBe("virtual");
     expect(root.nodes[0]?.kind).toBe("model");
   });
 

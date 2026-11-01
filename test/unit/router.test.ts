@@ -196,16 +196,10 @@ describe("模型路由优先级", () => {
     expectGatewayError(() => router.resolve("unknown-provider/gpt-5"), "MODEL_NOT_FOUND");
   });
 
-  it("Alias 精确匹配", () => {
+  it("旧别名合成为单节点 Combo", () => {
     const result = router.resolve("best-model");
-    expect(result.match.type).toBe("alias");
-    if (result.plan.kind === "models") {
-      expect(result.plan.targets[0]?.modelId).toBe("gpt-5");
-    }
-  });
-
-  it("Alias 循环引用被检测", () => {
-    expectGatewayError(() => router.resolve("loop-a"), "CONFIG_INVALID");
+    expect(result.match.type).toBe("combo");
+    expect(result.plan.kind).toBe("combo");
   });
 
   it("原生模型优先于通配符", () => {

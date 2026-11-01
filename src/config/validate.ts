@@ -216,25 +216,7 @@ export function validateSnapshot(
 
   // 命名空间冲突
   const nativeModelIds = new Set(data.models.map((model) => model.modelId.toLowerCase()));
-  const aliasNames = new Set<string>();
   const comboNames = new Set<string>();
-
-  for (const alias of data.aliases) {
-    const lower = alias.name.toLowerCase();
-    if (!VIRTUAL_NAME.test(alias.name)) {
-      issue(issues, "error", "CONFIG_INVALID", `Alias name "${alias.name}" is invalid (slashes are not allowed)`, "alias", alias.id);
-    }
-    if (aliasNames.has(lower)) {
-      issue(issues, "error", "CONFIG_INVALID", `Alias "${alias.name}" is duplicated`, "alias", alias.id);
-    }
-    aliasNames.add(lower);
-    if (nativeModelIds.has(lower)) {
-      issue(issues, "error", "CONFIG_MODEL_CONFLICT", `Alias "${alias.name}" conflicts with a native model ID`, "alias", alias.id);
-    }
-    if (providerNames.has(lower)) {
-      issue(issues, "error", "CONFIG_MODEL_CONFLICT", `Alias "${alias.name}" conflicts with a provider name`, "alias", alias.id);
-    }
-  }
 
   for (const combo of data.combos) {
     const lower = combo.name.toLowerCase();
@@ -273,12 +255,6 @@ export function validateSnapshot(
     }
     if (combo.sticky && (combo.sticky.ttlSeconds <= 0 || (combo.sticky.mode !== "round_robin" && combo.sticky.mode !== "first_available"))) {
       issue(issues, "error", "CONFIG_INVALID", `Combo "${combo.name}" has invalid sticky settings`, "combo", combo.id);
-    }
-  }
-
-  for (const alias of data.aliases) {
-    if (comboNames.has(alias.name.toLowerCase())) {
-      issue(issues, "error", "CONFIG_MODEL_CONFLICT", `Alias "${alias.name}" conflicts with a combo name`, "alias", alias.id);
     }
   }
 
@@ -327,9 +303,6 @@ export function validateSnapshot(
     }
   };
 
-  for (const alias of data.aliases) {
-    checkTarget(alias.target, alias.enabled, "alias", alias.id, `Alias "${alias.name}"`);
-  }
   for (const combo of data.combos) {
     if (combo.strategy === "fusion" && combo.judgeModel === undefined) {
       issue(
@@ -373,7 +346,7 @@ export function validateSnapshot(
   }
 
   issues.push(
-    ...validateCombos(data.combos, data.aliases, {
+    ...validateCombos(data.combos, {
       maxDepth: data.settings.maxComboDepth,
       maxNodes: data.settings.maxComboNodes,
     }),

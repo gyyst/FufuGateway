@@ -125,16 +125,6 @@ export const routeTargetSchema = z.union([
   z.object({ wildcard: z.string().min(1).max(200) }),
 ]);
 
-export const aliasCreateSchema = z.object({
-  name: z.string().min(1).max(128),
-  target: routeTargetSchema,
-  description: z.string().max(500).optional(),
-  enabled: z.boolean().optional(),
-  priority: z.number().int().min(0).max(1_000_000).optional(),
-});
-
-export const aliasUpdateSchema = aliasCreateSchema.partial();
-
 const comboNodeSchema = z.union([
   z.string().min(1).max(200),
   z.object({

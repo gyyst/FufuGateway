@@ -96,7 +96,8 @@ export interface ModelRecord {
   updatedAt: number;
 }
 
-export interface AliasRecord {
+/** @deprecated 仅用于读取旧配置快照中的别名；新配置统一为单节点 Combo。 */
+export interface LegacyAliasRecord {
   id: string;
   name: string;
   target: RouteTargetSpec;
@@ -176,7 +177,8 @@ export interface ConfigSnapshotData {
   providers: ProviderRecord[];
   accounts: ProviderAccountRecord[];
   models: ModelRecord[];
-  aliases: AliasRecord[];
+  /** 旧快照可能仍包含别名，运行时合成为单节点 Combo。 */
+  aliases?: LegacyAliasRecord[];
   /** 旧快照可能仍包含通配符规则，运行时合成为 glob Combo。 */
   wildcards?: LegacyWildcardRule[];
   combos: ComboRecord[];
@@ -210,7 +212,6 @@ export interface RuntimeConfig {
   modelsByModelId: Map<string, ModelRecord[]>;
   modelsByProvider: Map<string, ModelRecord[]>;
   modelByProviderModel: Map<string, ModelRecord>;
-  aliasesByName: Map<string, AliasRecord>;
   combosByName: Map<string, ComboRecord>;
   globCombos: CompiledGlobCombo[];
   accountsByProvider: Map<string, ProviderAccountRecord[]>;

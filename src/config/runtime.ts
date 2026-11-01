@@ -3,6 +3,7 @@ import type { ComboRecord } from "../combo/types";
 import type {
   CompiledGlobCombo,
   ConfigSnapshotData,
+  LegacyAliasRecord,
   LegacyWildcardRule,
   ModelRecord,
   ProviderAccountRecord,
@@ -13,6 +14,21 @@ import { providerModelKey } from "./types";
 
 function hasGlobChars(name: string): boolean {
   return name.includes("*") || name.includes("?");
+}
+
+/** 旧快照中的别名在运行时等价为一个单节点 Combo。 */
+function legacyAliasToCombo(alias: LegacyAliasRecord): ComboRecord {
+  return {
+    id: alias.id,
+    name: alias.name,
+    ...(alias.description === undefined ? {} : { description: alias.description }),
+    strategy: "fallback",
+    nodes: [alias.target],
+    priority: alias.priority,
+    enabled: alias.enabled,
+    createdAt: alias.createdAt,
+    updatedAt: alias.updatedAt,
+  };
 }
 
 /** 旧快照中的通配符规则在运行时等价为一个 glob Combo。 */
@@ -65,13 +81,14 @@ export function buildRuntimeConfig(data: ConfigSnapshotData, meta: RuntimeMeta):
   }
   const modelsByModelId = groupBy(data.models, (model) => model.modelId);
 
-  const aliasesByName = new Map(data.aliases.map((alias) => [alias.name.toLowerCase(), alias]));
-  const combosByName = new Map(data.combos.map((combo) => [combo.name.toLowerCase(), combo]));
-
   const comboList: ComboRecord[] = [...data.combos];
+  for (const alias of data.aliases ?? []) {
+    comboList.push(legacyAliasToCombo(alias));
+  }
   for (const rule of data.wildcards ?? []) {
     comboList.push(legacyWildcardToCombo(rule));
   }
+  const combosByName = new Map(comboList.map((combo) => [combo.name.toLowerCase(), combo]));
   const globCombos: CompiledGlobCombo[] = comboList
     .filter((combo) => hasGlobChars(combo.name))
     .map((combo) => ({ combo, compiled: compileGlob(combo.name) }));
@@ -113,7 +130,6 @@ export function buildRuntimeConfig(data: ConfigSnapshotData, meta: RuntimeMeta):
     modelsByModelId,
     modelsByProvider,
     modelByProviderModel,
-    aliasesByName,
     combosByName,
     globCombos,
     accountsByProvider,

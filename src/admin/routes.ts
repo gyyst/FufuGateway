@@ -25,13 +25,6 @@ import {
   updateModelHandler,
 } from "./handlers/models";
 import {
-  createAliasHandler,
-  deleteAliasHandler,
-  getAliasHandler,
-  listAliasesHandler,
-  updateAliasHandler,
-} from "./handlers/routing";
-import {
   createComboHandler,
   deleteComboHandler,
   getComboHandler,
@@ -101,13 +94,6 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
   app.get("/admin/pricing", listPricingHandler);
   app.post("/admin/pricing", createPricingHandler);
   app.delete("/admin/pricing/:id", deletePricingHandler);
-
-  // Alias
-  app.get("/admin/aliases", listAliasesHandler);
-  app.post("/admin/aliases", createAliasHandler);
-  app.get("/admin/aliases/:id", getAliasHandler);
-  app.put("/admin/aliases/:id", updateAliasHandler);
-  app.delete("/admin/aliases/:id", deleteAliasHandler);
 
   // 通配符
   // Combo

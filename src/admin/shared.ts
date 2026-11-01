@@ -12,28 +12,23 @@ import { isPrivateUpstreamAllowed, sanitizeCustomHeaders, validateUpstreamBaseUr
 import { compileGlob } from "../router/glob";
 import { readJsonObjectBody } from "../gateway/body";
 import {
-  listAliases,
   listCombos,
   listModels,
   listProviders,
 } from "../config/repository";
 
-/** 校验虚拟模型名称在别名 / Combo / 原生模型 / Provider 命名空间中的唯一性。 */
+/** 校验虚拟模型名称在 Combo / 原生模型 / Provider 命名空间中的唯一性。 */
 export async function assertVirtualNameAvailable(
   c: Context<AppEnv>,
   name: string,
-  exclude: { aliasId?: string; comboId?: string },
+  exclude: { comboId?: string },
 ): Promise<void> {
   const lower = name.toLowerCase();
-  const [aliases, combos, models, providers] = await Promise.all([
-    listAliases(c.env.DB),
+  const [combos, models, providers] = await Promise.all([
     listCombos(c.env.DB),
     listModels(c.env.DB),
     listProviders(c.env.DB),
   ]);
-  if (aliases.some((alias) => alias.name.toLowerCase() === lower && alias.id !== exclude.aliasId)) {
-    throw new GatewayError({ code: "INVALID_REQUEST", message: `Name "${name}" is already used by an alias` });
-  }
   if (combos.some((combo) => combo.name.toLowerCase() === lower && combo.id !== exclude.comboId)) {
     throw new GatewayError({ code: "INVALID_REQUEST", message: `Name "${name}" is already used by a combo` });
   }
@@ -95,7 +90,7 @@ export function validateModelId(modelId: string): void {
   }
 }
 
-export function validateVirtualName(name: string, kind: "alias" | "combo"): void {
+export function validateVirtualName(name: string, kind: "combo"): void {
   if (kind === "combo" && (name.includes("*") || name.includes("?"))) {
     try {
       compileGlob(name);

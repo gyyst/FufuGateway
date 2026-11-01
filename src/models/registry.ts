@@ -52,24 +52,10 @@ export function listPublicModels(
     }
   }
 
-  for (const alias of config.data.aliases) {
-    if (!alias.enabled || seen.has(alias.name)) continue;
-    if (!modelAllowed(alias.name, constraints)) continue;
-    if (providerRestricted) {
-      // 无法静态确定别名指向的 Provider 时，仅在明确按名称授权时展示。
-      if (!(constraints?.allowedModelIds ?? []).includes(alias.name)) continue;
-    }
-    seen.add(alias.name);
-    result.push({
-      id: alias.name,
-      providerId: "",
-      providerName: "FufuGateway",
-      createdAt: alias.createdAt,
-      capabilities: defaultCapabilities({ supportsStream: true, supportsTools: true }),
-    });
-  }
-
-  for (const combo of config.data.combos) {
+  const comboList = Array.from(config.combosByName.values()).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+  for (const combo of comboList) {
     if (!combo.enabled || seen.has(combo.name)) continue;
     if (!modelAllowed(combo.name, constraints)) continue;
     if (providerRestricted && !(constraints?.allowedModelIds ?? []).includes(combo.name)) continue;

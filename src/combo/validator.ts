@@ -1,5 +1,4 @@
 import type { ConfigValidationIssue } from "../config/types";
-import type { AliasRecord } from "../config/types";
 import type { ComboNodeSpec, ComboRecord, RouteTargetSpec, StrategyId } from "./types";
 import { isStrategyId } from "./types";
 
@@ -35,13 +34,11 @@ function specWeight(spec: ComboNodeSpec): number {
  */
 export function validateCombos(
   combos: ComboRecord[],
-  aliases: AliasRecord[],
   options: ComboValidationOptions,
 ): ConfigValidationIssue[] {
   const issues: ConfigValidationIssue[] = [];
   if (combos.length === 0) return issues;
 
-  const aliasMap = new Map(aliases.map((alias) => [alias.name.toLowerCase(), alias]));
   const comboMap = new Map(combos.map((combo) => [combo.name.toLowerCase(), combo]));
 
   const collectTarget = (
@@ -57,12 +54,13 @@ export function validateCombos(
     if ("combo" in normalized) {
       return { combos: [normalized.combo.toLowerCase()], nodeCount: 1 };
     }
+    // 兼容旧的 `{ alias }` 目标：等价于按名称引用 Combo。
     if ("alias" in normalized) {
-      const key = `alias:${normalized.alias.toLowerCase()}`;
+      const key = `combo:${normalized.alias.toLowerCase()}`;
       if (seen.has(key)) return { combos: [], nodeCount: 0 };
-      const alias = aliasMap.get(normalized.alias.toLowerCase());
-      if (!alias) return { combos: [], nodeCount: 1 };
-      return collectTarget(alias.target, new Set(seen).add(key), depth + 1);
+      const combo = comboMap.get(normalized.alias.toLowerCase());
+      if (!combo) return { combos: [], nodeCount: 1 };
+      return { combos: [normalized.alias.toLowerCase()], nodeCount: 1 };
     }
     // 兼容旧的 `{ wildcard }` 目标：等价于按名称引用 glob Combo。
     const key = `combo:${normalized.wildcard.toLowerCase()}`;

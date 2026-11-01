@@ -119,9 +119,10 @@ beforeAll(async () => {
   providerId = created.providerId;
   primaryModelId = created.modelId;
 
-  const aliasResponse = await adminCall("/admin/aliases", "POST", {
+  const aliasResponse = await adminCall("/admin/combos", "POST", {
     name: "test-alias",
-    target: "mock/gpt-test",
+    strategy: "fallback",
+    nodes: ["mock/gpt-test"],
   });
   expect(aliasResponse.status).toBe(201);
 

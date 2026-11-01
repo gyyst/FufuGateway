@@ -1,13 +1,12 @@
 import { GatewayError } from "../core/errors";
-import { asString, isRecord, type JsonObject } from "../core/json";
+import { isRecord, type JsonObject } from "../core/json";
 import { newId } from "../core/ids";
 import type { ModelCapabilities, OutputModality } from "../ir/request";
 import type { Modality } from "../ir/common";
 import type { ProtocolId } from "../ir/common";
-import type { ComboNodeSpec, ComboRecord, RouteTargetSpec, StickyConfig, StrategyId } from "../combo/types";
+import type { ComboNodeSpec, ComboRecord, StickyConfig, StrategyId } from "../combo/types";
 import type {
   AccountHealth,
-  AliasRecord,
   EncryptedCredential,
   ModelPricing,
   ModelRecord,
@@ -70,21 +69,6 @@ function parseStringArray(text: string | null, field: string): string[] {
     }
     return item;
   });
-}
-
-function parseRouteTarget(value: unknown, field: string): RouteTargetSpec {
-  if (typeof value === "string") return value;
-  if (isRecord(value)) {
-    const model = asString(value["model"]);
-    if (model !== undefined) return { model };
-    const alias = asString(value["alias"]);
-    if (alias !== undefined) return { alias };
-    const combo = asString(value["combo"]);
-    if (combo !== undefined) return { combo };
-    const wildcard = asString(value["wildcard"]);
-    if (wildcard !== undefined) return { wildcard };
-  }
-  throw new GatewayError({ code: "CONFIG_INVALID", message: `${field} is not a valid route target` });
 }
 
 // ---------------------------------------------------------------------------
@@ -157,17 +141,6 @@ interface ModelRow {
   price_unit: string;
   enabled: number;
   source: string;
-  created_at: number;
-  updated_at: number;
-}
-
-interface AliasRow {
-  id: string;
-  name: string;
-  target: string;
-  description: string | null;
-  enabled: number;
-  priority: number;
   created_at: number;
   updated_at: number;
 }
@@ -307,19 +280,6 @@ export function mapModel(row: ModelRow): ModelRecord {
   };
 }
 
-export function mapAlias(row: AliasRow): AliasRecord {
-  return {
-    id: row.id,
-    name: row.name,
-    target: parseRouteTarget(parseJson(row.target, "model_aliases.target"), "model_aliases.target"),
-    ...(row.description === null ? {} : { description: row.description }),
-    enabled: row.enabled === 1,
-    priority: row.priority,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
 export function mapCombo(row: ComboRow): ComboRecord {
   const nodes = parseJsonArray(row.nodes, "combos.nodes") as ComboNodeSpec[];
   const sticky = parseJson(row.sticky, "combos.sticky") as StickyConfig | undefined;
@@ -400,16 +360,6 @@ export async function getModel(db: D1Database, id: string): Promise<ModelRecord 
   return row === null ? undefined : mapModel(row);
 }
 
-export async function listAliases(db: D1Database): Promise<AliasRecord[]> {
-  const rows = await db.prepare("SELECT * FROM model_aliases ORDER BY name ASC").all<AliasRow>();
-  return rows.results.map(mapAlias);
-}
-
-export async function getAlias(db: D1Database, id: string): Promise<AliasRecord | undefined> {
-  const row = await db.prepare("SELECT * FROM model_aliases WHERE id = ?").bind(id).first<AliasRow>();
-  return row === null ? undefined : mapAlias(row);
-}
-
 export async function listCombos(db: D1Database): Promise<ComboRecord[]> {
   const rows = await db.prepare("SELECT * FROM combos ORDER BY name ASC").all<ComboRow>();
   return rows.results.map(mapCombo);
@@ -427,16 +377,15 @@ export async function listPricing(db: D1Database): Promise<PricingRecord[]> {
 
 /** 一次性加载构建配置快照所需的全部数据。 */
 export async function loadConfigData(db: D1Database): Promise<import("./types").ConfigSnapshotData> {
-  const [providers, accounts, models, aliases, combos, pricing, settings] = await Promise.all([
+  const [providers, accounts, models, combos, pricing, settings] = await Promise.all([
     listProviders(db),
     listAccounts(db),
     listModels(db),
-    listAliases(db),
     listCombos(db),
     listPricing(db),
     loadSettings(db),
   ]);
-  return { providers, accounts, models, aliases, combos, pricing, settings };
+  return { providers, accounts, models, combos, pricing, settings };
 }
 
 export async function loadSettings(db: D1Database): Promise<RuntimeSettings> {
@@ -771,54 +720,6 @@ export async function replaceModel(db: D1Database, record: ModelRecord): Promise
 
 export async function deleteModel(db: D1Database, id: string): Promise<void> {
   await db.prepare("DELETE FROM models WHERE id = ?").bind(id).run();
-}
-
-export interface CreateAliasInput {
-  name: string;
-  target: RouteTargetSpec;
-  description?: string;
-  enabled?: boolean;
-  priority?: number;
-}
-
-export async function createAlias(db: D1Database, input: CreateAliasInput): Promise<AliasRecord> {
-  const timestamp = now();
-  const record: AliasRecord = {
-    id: newId("als"),
-    name: input.name,
-    target: input.target,
-    ...(input.description === undefined ? {} : { description: input.description }),
-    enabled: input.enabled ?? true,
-    priority: input.priority ?? 100,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
-  await replaceAlias(db, record);
-  return record;
-}
-
-export async function replaceAlias(db: D1Database, record: AliasRecord): Promise<void> {
-  await db
-    .prepare(
-      `INSERT OR REPLACE INTO model_aliases
-        (id, name, target, description, enabled, priority, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      record.id,
-      record.name,
-      JSON.stringify(record.target),
-      record.description ?? null,
-      record.enabled ? 1 : 0,
-      record.priority,
-      record.createdAt,
-      record.updatedAt,
-    )
-    .run();
-}
-
-export async function deleteAlias(db: D1Database, id: string): Promise<void> {
-  await db.prepare("DELETE FROM model_aliases WHERE id = ?").bind(id).run();
 }
 
 export interface CreateComboInput {

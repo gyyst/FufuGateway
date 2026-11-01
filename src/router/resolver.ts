@@ -12,7 +12,6 @@ import type {
   RouteTargetSpec,
   ResolvedTarget,
 } from "../combo/types";
-import { MAX_ROUTE_DEPTH } from "../core/limits";
 import { globMatches } from "./glob";
 
 export interface RouteConstraints {
@@ -54,37 +53,19 @@ export class ModelRouter {
   }
 
   /** 供组合节点与配置校验复用。 */
-  resolveTargetSpec(
-    spec: RouteTargetSpec,
-    trace: string[] = [],
-    depth = 0,
-    seen = new Set<string>(),
-  ): RoutePlan {
-    if (depth > MAX_ROUTE_DEPTH) {
-      throw new GatewayError({
-        code: "CONFIG_INVALID",
-        message: "Route target nesting exceeds the maximum depth",
-      });
-    }
+  resolveTargetSpec(spec: RouteTargetSpec, trace: string[] = []): RoutePlan {
     const normalized: Exclude<RouteTargetSpec, string> =
       typeof spec === "string" ? { model: spec } : spec;
 
     if ("model" in normalized) {
       return { kind: "models", strategy: "fallback", targets: [this.resolveModelRef(normalized.model, trace)] };
     }
+    // `{ alias }` 为兼容用法，等价于按名称引用 Combo。
     if ("alias" in normalized) {
-      const key = `alias:${normalized.alias.toLowerCase()}`;
-      if (seen.has(key)) {
-        throw new GatewayError({
-          code: "CONFIG_INVALID",
-          message: `Alias cycle detected at "${normalized.alias}"`,
-        });
-      }
-      const alias = this.config.aliasesByName.get(normalized.alias.toLowerCase());
-      if (!alias || !alias.enabled) throw notFound(normalized.alias);
-      trace.push(`alias:${alias.name}`);
-      const nextSeen = new Set(seen).add(key);
-      return this.resolveTargetSpec(alias.target, trace, depth + 1, nextSeen);
+      const combo = this.config.combosByName.get(normalized.alias.toLowerCase());
+      if (!combo || !combo.enabled) throw notFound(normalized.alias);
+      trace.push(`combo:${combo.name}`);
+      return { kind: "combo", combo };
     }
     if ("combo" in normalized) {
       const combo = this.config.combosByName.get(normalized.combo.toLowerCase());
@@ -186,20 +167,7 @@ export class ModelRouter {
       );
     }
 
-    // 3. Alias 精确匹配
-    const alias = this.config.aliasesByName.get(requestedModel.toLowerCase());
-    if (alias !== undefined && alias.enabled) {
-      trace.push(`alias:${alias.name}`);
-      const plan = this.resolveTargetSpec(alias.target, trace, 1, new Set([`alias:${alias.name.toLowerCase()}`]));
-      return {
-        requestedModel,
-        match: { type: "alias", alias: alias.name, priority: alias.priority },
-        plan,
-        trace,
-      };
-    }
-
-    // 4. Combo 名称精确匹配（名称不含通配符）
+    // 3. Combo 名称精确匹配（名称不含通配符）
     const combo = this.config.combosByName.get(requestedModel.toLowerCase());
     if (combo !== undefined && combo.enabled && !hasGlobChars(combo.name)) {
       trace.push(`combo:${combo.name}`);
