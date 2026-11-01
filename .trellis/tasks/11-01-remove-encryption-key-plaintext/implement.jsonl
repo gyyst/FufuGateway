@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/11-01-remove-encryption-key-plaintext/research/incident.md", "reason": "Incident timeline, root cause and the decision to store upstream apiKey in plaintext"}
+{"file": ".trellis/spec/backend/security-guidelines.md", "reason": "Current secret inventory and provider credential contract that must be rewritten"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "D1 migration and repository mapping conventions for the new api_key_plain column"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality gates for validation, admin API and execution changes"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Zero-build UI conventions for account credential display and forms"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Keep migration, repository, snapshot, runtime, admin API and UI consistent"}

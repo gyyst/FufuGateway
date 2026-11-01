@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/11-01-remove-encryption-key-plaintext/research/incident.md", "reason": "Verify the root cause and the explicit plaintext decision"}
+{"file": ".trellis/spec/backend/security-guidelines.md", "reason": "Check the updated secret inventory and credential contract"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Check migration safety and repository mapping"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Check admin API, validation and execution quality"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Check account UI credential type display"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check consistency across D1, config snapshot, runtime, API and UI"}
