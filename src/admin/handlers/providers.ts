@@ -27,8 +27,8 @@ import {
 } from "../schemas";
 import {
   assertProviderTypeProtocol,
+  configMutationResponse,
   parseAdminBody,
-  recordAudit,
   requireParam,
   requireProviderId,
   sanitizeAccount,
@@ -104,8 +104,15 @@ export async function createProviderHandler(c: Context<AppEnv>): Promise<Respons
     proxyConfig: input.proxyConfig ?? null,
     extraConfig: input.extraConfig,
   });
-  await recordAudit(c, "provider.create", "provider", record.id, { name: record.name, type: record.type });
-  return c.json({ data: sanitizeProvider(record) }, 201);
+  return configMutationResponse(
+    c,
+    "provider.create",
+    "provider",
+    record.id,
+    { name: record.name, type: record.type },
+    { data: sanitizeProvider(record) },
+    201,
+  );
 }
 
 function mergeProvider(provider: ProviderRecord, input: Partial<typeof provider> & Record<string, unknown>): ProviderRecord {
@@ -144,15 +151,27 @@ export async function updateProviderHandler(c: Context<AppEnv>): Promise<Respons
 
   const updated: ProviderRecord = { ...merged, customHeaders };
   await replaceProvider(c.env.DB, updated);
-  await recordAudit(c, "provider.update", "provider", updated.id, { name: updated.name });
-  return c.json({ data: sanitizeProvider(updated) });
+  return configMutationResponse(
+    c,
+    "provider.update",
+    "provider",
+    updated.id,
+    { name: updated.name },
+    { data: sanitizeProvider(updated) },
+  );
 }
 
 export async function deleteProviderHandler(c: Context<AppEnv>): Promise<Response> {
   const provider = await requireProvider(c, requireProviderId(c));
   await deleteProvider(c.env.DB, provider.id);
-  await recordAudit(c, "provider.delete", "provider", provider.id, { name: provider.name });
-  return c.json({ deleted: true, id: provider.id });
+  return configMutationResponse(
+    c,
+    "provider.delete",
+    "provider",
+    provider.id,
+    { name: provider.name },
+    { deleted: true, id: provider.id },
+  );
 }
 
 export async function listAccountsHandler(c: Context<AppEnv>): Promise<Response> {
@@ -181,11 +200,18 @@ export async function createAccountHandler(c: Context<AppEnv>): Promise<Response
     priority: input.priority,
     enabled: input.enabled,
   });
-  await recordAudit(c, "account.create", "provider_account", account.id, {
-    providerId: provider.id,
-    credential: input.apiKey === undefined ? "secret_ref" : "api_key",
-  });
-  return c.json({ data: sanitizeAccount(account) }, 201);
+  return configMutationResponse(
+    c,
+    "account.create",
+    "provider_account",
+    account.id,
+    {
+      providerId: provider.id,
+      credential: input.apiKey === undefined ? "secret_ref" : "api_key",
+    },
+    { data: sanitizeAccount(account) },
+    201,
+  );
 }
 
 export async function updateAccountHandler(c: Context<AppEnv>): Promise<Response> {
@@ -216,8 +242,14 @@ export async function updateAccountHandler(c: Context<AppEnv>): Promise<Response
     delete updated.apiKey;
   }
   await replaceAccount(c.env.DB, updated);
-  await recordAudit(c, "account.update", "provider_account", account.id, { providerId: provider.id });
-  return c.json({ data: sanitizeAccount(updated) });
+  return configMutationResponse(
+    c,
+    "account.update",
+    "provider_account",
+    account.id,
+    { providerId: provider.id },
+    { data: sanitizeAccount(updated) },
+  );
 }
 
 export async function deleteAccountHandler(c: Context<AppEnv>): Promise<Response> {
@@ -228,8 +260,14 @@ export async function deleteAccountHandler(c: Context<AppEnv>): Promise<Response
     throw new GatewayError({ code: "NOT_FOUND", message: "Provider account not found" });
   }
   await deleteAccount(c.env.DB, account.id);
-  await recordAudit(c, "account.delete", "provider_account", account.id, { providerId: provider.id });
-  return c.json({ deleted: true, id: account.id });
+  return configMutationResponse(
+    c,
+    "account.delete",
+    "provider_account",
+    account.id,
+    { providerId: provider.id },
+    { deleted: true, id: account.id },
+  );
 }
 
 export async function testProviderHandler(c: Context<AppEnv>): Promise<Response> {
@@ -289,19 +327,20 @@ export async function syncModelsHandler(c: Context<AppEnv>): Promise<Response> {
   const { apiKey } = await selectAnyProviderAccount(c.env, provider.id);
   const result = await syncProviderModels(c.env, provider, apiKey, c.get("fetchImpl"));
 
-  await recordAudit(c, "provider.sync_models", "provider", provider.id, {
-    total: result.total,
-    created: result.created,
-    skipped: result.skipped,
-  });
-
-  return c.json({
-    providerId: provider.id,
-    total: result.total,
-    created: result.created,
-    skipped: result.skipped,
-    createdModels: result.createdModels,
-    requiresConfirmation: true,
-    note: "Synced models are disabled until an administrator confirms their capabilities and enables them.",
-  });
+  return configMutationResponse(
+    c,
+    "provider.sync_models",
+    "provider",
+    provider.id,
+    { total: result.total, created: result.created, skipped: result.skipped },
+    {
+      providerId: provider.id,
+      total: result.total,
+      created: result.created,
+      skipped: result.skipped,
+      createdModels: result.createdModels,
+      requiresConfirmation: true,
+      note: "Synced models are disabled until an administrator confirms their capabilities and enables them.",
+    },
+  );
 }

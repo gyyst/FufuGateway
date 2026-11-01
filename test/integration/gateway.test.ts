@@ -306,8 +306,13 @@ describe("管理接口", () => {
   it("Combo 循环引用会阻止配置发布且不影响已生效配置", async () => {
     const a = await adminCall("/admin/combos", "POST", { name: "cycle-a", strategy: "fallback", nodes: [{ combo: "cycle-b" }] });
     expect(a.status).toBe(201);
+    const aBody = (await a.json()) as { config?: { applied: boolean } };
+    expect(aBody.config?.applied).toBe(false);
     const b = await adminCall("/admin/combos", "POST", { name: "cycle-b", strategy: "fallback", nodes: [{ combo: "cycle-a" }] });
     expect(b.status).toBe(201);
+    const bBody = (await b.json()) as { config?: { applied: boolean; issues: unknown[] } };
+    expect(bBody.config?.applied).toBe(false);
+    expect(bBody.config?.issues.length).toBeGreaterThan(0);
 
     const publish = await adminCall("/admin/config/publish", "POST", {});
     expect(publish.status).toBe(400);

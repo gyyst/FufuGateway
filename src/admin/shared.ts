@@ -16,6 +16,7 @@ import {
   listModels,
   listProviders,
 } from "../config/repository";
+import { autoPublish } from "../config/snapshot";
 
 /** 校验虚拟模型名称在 Combo / 原生模型 / Provider 命名空间中的唯一性。 */
 export async function assertVirtualNameAvailable(
@@ -171,6 +172,12 @@ export function sanitizeAccount(account: ProviderAccountRecord): Record<string, 
   };
 }
 
+/** 当前管理请求的操作者标识，用于审计与配置版本 createdBy。 */
+export function currentActorId(c: Context<AppEnv>): string {
+  const principal = c.get("principal");
+  return principal?.apiKey?.id ?? principal?.user?.id ?? "admin";
+}
+
 export async function recordAudit(
   c: Context<AppEnv>,
   action: string,
@@ -180,16 +187,14 @@ export async function recordAudit(
 ): Promise<void> {
   const principal = c.get("principal");
   if (principal === undefined) return;
-  const actorType = principal.type;
-  const actorId = principal.apiKey?.id ?? principal.user?.id ?? "admin";
   await c.env.DB.prepare(
     `INSERT INTO audit_logs (id, actor_type, actor_id, action, target_type, target_id, details, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       `aud_${crypto.randomUUID()}`,
-      actorType,
-      actorId,
+      principal.type,
+      currentActorId(c),
       action,
       targetType,
       targetId,
@@ -197,6 +202,29 @@ export async function recordAudit(
       Date.now(),
     )
     .run();
+}
+
+/**
+ * 配置写入的统一响应：保存后自动发布，审计结果附带配置版本，
+ * 并把发布结果作为顶层 `config` 字段返回给管理端。
+ */
+export async function configMutationResponse(
+  c: Context<AppEnv>,
+  action: string,
+  targetType: string,
+  targetId: string | null,
+  details: Record<string, unknown> | undefined,
+  body: Record<string, unknown>,
+  status: 200 | 201 = 200,
+): Promise<Response> {
+  const config = await autoPublish(c.env, { createdBy: currentActorId(c), reason: action });
+  await recordAudit(c, action, targetType, targetId, {
+    ...details,
+    configVersion: config.version,
+    configApplied: config.applied,
+    configUnchanged: config.unchanged,
+  });
+  return c.json({ ...body, config }, status);
 }
 
 export function requireProviderId(c: Context<AppEnv>): string {

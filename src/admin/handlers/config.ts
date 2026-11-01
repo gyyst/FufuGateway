@@ -11,12 +11,7 @@ import {
 import { validateSnapshot } from "../../config/validate";
 import { isPrivateUpstreamAllowed } from "../../security/ssrf";
 import { configPublishSchema, configRollbackSchema } from "../schemas";
-import { parseAdminBody, recordAudit } from "../shared";
-
-function actorId(c: Context<AppEnv>): string {
-  const principal = c.get("principal");
-  return principal?.apiKey?.id ?? principal?.user?.id ?? "admin";
-}
+import { currentActorId, parseAdminBody, recordAudit } from "../shared";
 
 export async function currentConfigHandler(c: Context<AppEnv>): Promise<Response> {
   return c.json({ data: await getConfigStatus(c.env) });
@@ -40,7 +35,7 @@ export async function validateConfigHandler(c: Context<AppEnv>): Promise<Respons
 export async function publishConfigHandler(c: Context<AppEnv>): Promise<Response> {
   const input = await parseAdminBody(c, configPublishSchema);
   const result = await publishConfig(c.env, {
-    createdBy: actorId(c),
+    createdBy: currentActorId(c),
     note: input.note,
   });
   await recordAudit(c, "config.publish", "config", String(result.version), {
@@ -58,7 +53,7 @@ export async function listConfigVersionsHandler(c: Context<AppEnv>): Promise<Res
 
 export async function rollbackConfigHandler(c: Context<AppEnv>): Promise<Response> {
   const input = await parseAdminBody(c, configRollbackSchema);
-  const result = await rollbackConfig(c.env, input.version, { createdBy: actorId(c) });
+  const result = await rollbackConfig(c.env, input.version, { createdBy: currentActorId(c) });
   await recordAudit(c, "config.rollback", "config", String(result.version), {
     checksum: result.checksum,
   });

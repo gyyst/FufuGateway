@@ -7,6 +7,7 @@ import type { ProtocolId } from "../ir/common";
 import type { ComboNodeSpec, ComboRecord, StickyConfig, StrategyId } from "../combo/types";
 import type {
   AccountHealth,
+  ConfigSnapshotData,
   ModelPricing,
   ModelRecord,
   PricingRecord,
@@ -309,6 +310,37 @@ export function mapPricing(row: PricingRow): PricingRecord {
 }
 
 // ---------------------------------------------------------------------------
+// 设置键映射
+// ---------------------------------------------------------------------------
+
+/** RuntimeSettings 字段与 system_settings 键的唯一映射，读写两侧共用。 */
+const SETTING_KEY_MAP = {
+  gatewayName: "gateway.name",
+  compatPolicy: "compat.default_policy",
+  maxBodyBytes: "limits.max_body_bytes",
+  maxResponseBytes: "limits.max_response_bytes",
+  maxStreamEventBytes: "limits.max_stream_event_bytes",
+  maxComboDepth: "limits.max_combo_depth",
+  maxComboNodes: "limits.max_combo_nodes",
+  maxComboConcurrency: "limits.max_combo_concurrency",
+  requestTimeoutMs: "timeouts.request_ms",
+  retentionDays: "logging.retention_days",
+  corsAllowedOrigins: "cors.allowed_origins",
+  configCacheTtlMs: "config.cache_ttl_ms",
+} as const satisfies Record<keyof RuntimeSettings, string>;
+
+/** 允许通过管理接口写入的全部 system_settings 键。 */
+export const RUNTIME_SETTING_KEYS: readonly string[] = Object.values(SETTING_KEY_MAP);
+
+/** 把 RuntimeSettings 反向展开为 system_settings 键值对（缺省字段回落到默认值）。 */
+function runtimeSettingEntries(settings: RuntimeSettings): Array<[string, unknown]> {
+  return (Object.keys(SETTING_KEY_MAP) as Array<keyof RuntimeSettings>).map((field) => [
+    SETTING_KEY_MAP[field],
+    settings[field] ?? DEFAULT_RUNTIME_SETTINGS[field],
+  ]);
+}
+
+// ---------------------------------------------------------------------------
 // 读取
 // ---------------------------------------------------------------------------
 
@@ -369,7 +401,7 @@ export async function listPricing(db: D1Database): Promise<PricingRecord[]> {
 }
 
 /** 一次性加载构建配置快照所需的全部数据。 */
-export async function loadConfigData(db: D1Database): Promise<import("./types").ConfigSnapshotData> {
+export async function loadConfigData(db: D1Database): Promise<ConfigSnapshotData> {
   const [providers, accounts, models, combos, pricing, settings] = await Promise.all([
     listProviders(db),
     listAccounts(db),
@@ -406,24 +438,24 @@ export async function loadSettings(db: D1Database): Promise<RuntimeSettings> {
     if (!Array.isArray(value)) return [];
     return value.filter((item): item is string => typeof item === "string");
   };
-  const policy = readString("compat.default_policy", DEFAULT_RUNTIME_SETTINGS.compatPolicy);
+  const policy = readString(SETTING_KEY_MAP.compatPolicy, DEFAULT_RUNTIME_SETTINGS.compatPolicy);
   const compatPolicy =
     policy === "strict" || policy === "warn" || policy === "drop" || policy === "passthrough"
       ? policy
       : DEFAULT_RUNTIME_SETTINGS.compatPolicy;
   return {
-    gatewayName: readString("gateway.name", DEFAULT_RUNTIME_SETTINGS.gatewayName),
+    gatewayName: readString(SETTING_KEY_MAP.gatewayName, DEFAULT_RUNTIME_SETTINGS.gatewayName),
     compatPolicy,
-    maxBodyBytes: readNumber("limits.max_body_bytes", DEFAULT_RUNTIME_SETTINGS.maxBodyBytes),
-    maxResponseBytes: readNumber("limits.max_response_bytes", DEFAULT_RUNTIME_SETTINGS.maxResponseBytes),
-    maxStreamEventBytes: readNumber("limits.max_stream_event_bytes", DEFAULT_RUNTIME_SETTINGS.maxStreamEventBytes),
-    maxComboDepth: readNumber("limits.max_combo_depth", DEFAULT_RUNTIME_SETTINGS.maxComboDepth),
-    maxComboNodes: readNumber("limits.max_combo_nodes", DEFAULT_RUNTIME_SETTINGS.maxComboNodes),
-    maxComboConcurrency: readNumber("limits.max_combo_concurrency", DEFAULT_RUNTIME_SETTINGS.maxComboConcurrency),
-    requestTimeoutMs: readNumber("timeouts.request_ms", DEFAULT_RUNTIME_SETTINGS.requestTimeoutMs),
-    retentionDays: readNumber("logging.retention_days", DEFAULT_RUNTIME_SETTINGS.retentionDays),
-    corsAllowedOrigins: readStringArray("cors.allowed_origins"),
-    configCacheTtlMs: readNumber("config.cache_ttl_ms", DEFAULT_RUNTIME_SETTINGS.configCacheTtlMs),
+    maxBodyBytes: readNumber(SETTING_KEY_MAP.maxBodyBytes, DEFAULT_RUNTIME_SETTINGS.maxBodyBytes),
+    maxResponseBytes: readNumber(SETTING_KEY_MAP.maxResponseBytes, DEFAULT_RUNTIME_SETTINGS.maxResponseBytes),
+    maxStreamEventBytes: readNumber(SETTING_KEY_MAP.maxStreamEventBytes, DEFAULT_RUNTIME_SETTINGS.maxStreamEventBytes),
+    maxComboDepth: readNumber(SETTING_KEY_MAP.maxComboDepth, DEFAULT_RUNTIME_SETTINGS.maxComboDepth),
+    maxComboNodes: readNumber(SETTING_KEY_MAP.maxComboNodes, DEFAULT_RUNTIME_SETTINGS.maxComboNodes),
+    maxComboConcurrency: readNumber(SETTING_KEY_MAP.maxComboConcurrency, DEFAULT_RUNTIME_SETTINGS.maxComboConcurrency),
+    requestTimeoutMs: readNumber(SETTING_KEY_MAP.requestTimeoutMs, DEFAULT_RUNTIME_SETTINGS.requestTimeoutMs),
+    retentionDays: readNumber(SETTING_KEY_MAP.retentionDays, DEFAULT_RUNTIME_SETTINGS.retentionDays),
+    corsAllowedOrigins: readStringArray(SETTING_KEY_MAP.corsAllowedOrigins),
+    configCacheTtlMs: readNumber(SETTING_KEY_MAP.configCacheTtlMs, DEFAULT_RUNTIME_SETTINGS.configCacheTtlMs),
   };
 }
 
@@ -479,8 +511,8 @@ export async function createProvider(db: D1Database, input: CreateProviderInput)
   return record;
 }
 
-export async function replaceProvider(db: D1Database, record: ProviderRecord): Promise<void> {
-  await db
+function providerStatement(db: D1Database, record: ProviderRecord): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO providers
         (id, name, type, protocol, base_url, enabled, priority, weight, custom_headers,
@@ -524,8 +556,11 @@ export async function replaceProvider(db: D1Database, record: ProviderRecord): P
       JSON.stringify(record.extraConfig),
       record.createdAt,
       record.updatedAt,
-    )
-    .run();
+    );
+}
+
+export async function replaceProvider(db: D1Database, record: ProviderRecord): Promise<void> {
+  await providerStatement(db, record).run();
 }
 
 export async function deleteProvider(db: D1Database, id: string): Promise<void> {
@@ -567,8 +602,8 @@ export async function createAccount(db: D1Database, input: CreateAccountInput): 
   return record;
 }
 
-export async function replaceAccount(db: D1Database, record: ProviderAccountRecord): Promise<void> {
-  await db
+function accountStatement(db: D1Database, record: ProviderAccountRecord): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT OR REPLACE INTO provider_accounts
         (id, provider_id, name, api_key_plain, secret_ref, weight, priority,
@@ -591,8 +626,11 @@ export async function replaceAccount(db: D1Database, record: ProviderAccountReco
       record.lastCheckedAt ?? null,
       record.createdAt,
       record.updatedAt,
-    )
-    .run();
+    );
+}
+
+export async function replaceAccount(db: D1Database, record: ProviderAccountRecord): Promise<void> {
+  await accountStatement(db, record).run();
 }
 
 export async function deleteAccount(db: D1Database, id: string): Promise<void> {
@@ -666,9 +704,9 @@ export async function createModel(db: D1Database, input: CreateModelInput): Prom
   return record;
 }
 
-export async function replaceModel(db: D1Database, record: ModelRecord): Promise<void> {
+function modelStatement(db: D1Database, record: ModelRecord): D1PreparedStatement {
   const capabilities = record.capabilities;
-  await db
+  return db
     .prepare(
       `INSERT OR REPLACE INTO models
         (id, provider_id, model_id, upstream_model_id, display_name, input_modalities, output_modalities,
@@ -706,8 +744,11 @@ export async function replaceModel(db: D1Database, record: ModelRecord): Promise
       record.source,
       record.createdAt,
       record.updatedAt,
-    )
-    .run();
+    );
+}
+
+export async function replaceModel(db: D1Database, record: ModelRecord): Promise<void> {
+  await modelStatement(db, record).run();
 }
 
 export async function deleteModel(db: D1Database, id: string): Promise<void> {
@@ -748,8 +789,8 @@ export async function createCombo(db: D1Database, input: CreateComboInput): Prom
   return record;
 }
 
-export async function replaceCombo(db: D1Database, record: ComboRecord): Promise<void> {
-  await db
+function comboStatement(db: D1Database, record: ComboRecord): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT OR REPLACE INTO combos
         (id, name, description, strategy, nodes, judge_model, timeout_ms, max_concurrency, sticky, priority, enabled, created_at, updated_at)
@@ -769,8 +810,11 @@ export async function replaceCombo(db: D1Database, record: ComboRecord): Promise
       record.enabled ? 1 : 0,
       record.createdAt,
       record.updatedAt,
-    )
-    .run();
+    );
+}
+
+export async function replaceCombo(db: D1Database, record: ComboRecord): Promise<void> {
+  await comboStatement(db, record).run();
 }
 
 export async function deleteCombo(db: D1Database, id: string): Promise<void> {
@@ -788,20 +832,8 @@ export interface CreatePricingInput {
   effectiveFrom?: number;
 }
 
-export async function createPricing(db: D1Database, input: CreatePricingInput): Promise<PricingRecord> {
-  const record: PricingRecord = {
-    id: newId("prc"),
-    providerId: input.providerId,
-    modelId: input.modelId,
-    inputPrice: input.inputPrice,
-    outputPrice: input.outputPrice,
-    ...(input.cachedInputPrice === undefined ? {} : { cachedInputPrice: input.cachedInputPrice }),
-    ...(input.reasoningPrice === undefined ? {} : { reasoningPrice: input.reasoningPrice }),
-    currency: input.currency ?? "USD",
-    ...(input.effectiveFrom === undefined ? {} : { effectiveFrom: input.effectiveFrom }),
-    createdAt: now(),
-  };
-  await db
+function pricingStatement(db: D1Database, record: PricingRecord): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT OR REPLACE INTO pricing
         (id, provider_id, model_id, input_price, output_price, cached_input_price, reasoning_price,
@@ -819,8 +851,23 @@ export async function createPricing(db: D1Database, input: CreatePricingInput): 
       record.currency,
       record.effectiveFrom ?? null,
       record.createdAt,
-    )
-    .run();
+    );
+}
+
+export async function createPricing(db: D1Database, input: CreatePricingInput): Promise<PricingRecord> {
+  const record: PricingRecord = {
+    id: newId("prc"),
+    providerId: input.providerId,
+    modelId: input.modelId,
+    inputPrice: input.inputPrice,
+    outputPrice: input.outputPrice,
+    ...(input.cachedInputPrice === undefined ? {} : { cachedInputPrice: input.cachedInputPrice }),
+    ...(input.reasoningPrice === undefined ? {} : { reasoningPrice: input.reasoningPrice }),
+    currency: input.currency ?? "USD",
+    ...(input.effectiveFrom === undefined ? {} : { effectiveFrom: input.effectiveFrom }),
+    createdAt: now(),
+  };
+  await pricingStatement(db, record).run();
   return record;
 }
 
@@ -828,11 +875,39 @@ export async function deletePricing(db: D1Database, id: string): Promise<void> {
   await db.prepare("DELETE FROM pricing WHERE id = ?").bind(id).run();
 }
 
-export async function setSetting(db: D1Database, key: string, value: unknown): Promise<void> {
-  await db
+function settingStatement(db: D1Database, key: string, value: unknown, updatedAt: number): D1PreparedStatement {
+  return db
     .prepare("INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)")
-    .bind(key, JSON.stringify(value), now())
-    .run();
+    .bind(key, JSON.stringify(value), updatedAt);
+}
+
+export async function setSetting(db: D1Database, key: string, value: unknown): Promise<void> {
+  await settingStatement(db, key, value, now()).run();
+}
+
+/**
+ * 用配置快照原子重建六类配置表（不含用户、API Key、用量与审计）。
+ * 先删后插，保证重新 loadConfigData 后得到与快照一致的数据与 checksum。
+ */
+export async function restoreConfigData(db: D1Database, data: ConfigSnapshotData): Promise<void> {
+  const timestamp = now();
+  const statements: D1PreparedStatement[] = [
+    db.prepare("DELETE FROM provider_accounts"),
+    db.prepare("DELETE FROM models"),
+    db.prepare("DELETE FROM pricing"),
+    db.prepare("DELETE FROM providers"),
+    db.prepare("DELETE FROM combos"),
+    db.prepare("DELETE FROM system_settings"),
+  ];
+  for (const provider of data.providers) statements.push(providerStatement(db, provider));
+  for (const account of data.accounts) statements.push(accountStatement(db, account));
+  for (const model of data.models) statements.push(modelStatement(db, model));
+  for (const pricing of data.pricing) statements.push(pricingStatement(db, pricing));
+  for (const combo of data.combos) statements.push(comboStatement(db, combo));
+  for (const [key, value] of runtimeSettingEntries(data.settings)) {
+    statements.push(settingStatement(db, key, value, timestamp));
+  }
+  await db.batch(statements);
 }
 
 export { providerModelKey };

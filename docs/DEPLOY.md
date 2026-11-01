@@ -136,17 +136,16 @@ npm run deploy
 ## 7. 首次配置流程
 
 1. 访问 `https://<worker-domain>/ui`，使用 `ADMIN_TOKEN` 登录。
-2. 打开「快速开始」，按清单完成 Secrets、Provider、账户、模型、发布和 API Key。
+2. 打开「快速开始」，按清单完成 Secrets、Provider、账户、模型和 API Key。
 3. 「Provider」→「从预设添加」，选择火山方舟、华为云 MaaS、OpenAI、Anthropic、Gemini、DeepSeek、Kimi、GLM、Qwen、OpenRouter 等预设，或填写自定义兼容端点。
 4. 添加账户。生产环境优先使用 Worker Secret 的 `secretRef`，避免通过页面保存明文密钥。
 5. 同步上游模型或手动添加模型。同步结果默认禁用，必须在模型编辑中确认能力后启用。
 6. 创建用户与 API Key。
 7. 配置 Combo（含通配符与单目标别名，可选）。
-8. 「配置与审计」→ 发布配置。
-9. 「路由诊断」输入模型并解析路由；确认账户存在后运行网关自测。自测会产生真实上游费用，输出最多 32 Token。
-10. 「客户端接入」复制 Base URL、环境变量或 SDK 示例。
+8. 「路由诊断」输入模型并解析路由；确认账户存在后运行网关自测。自测会产生真实上游费用，输出最多 32 Token。
+9. 「客户端接入」复制 Base URL、环境变量或 SDK 示例。
 
-首次发布前，网关在没有 KV 当前版本时会回退到 D1 数据（内存缓存 60 秒），但仍然建议显式发布。
+配置在每次保存时自动校验并发布生效，无需手动发布；跨 isolate 最迟约 60 秒读取新版本。非法配置会保存但不生效，旧版本继续服务，修复后下一次合法保存会自动收敛。
 
 本地开发如需访问 `http://localhost` 或私有地址的上游，可在 `.dev.vars` 中设置 `ALLOW_PRIVATE_UPSTREAMS=true`；生产环境不要启用。
 
@@ -185,10 +184,11 @@ npm run deploy
 
 ### 配置发布与回滚
 
-- 发布：Admin UI 或 `POST /admin/config/publish`。
-- 校验：`POST /admin/config/validate`。
-- 回滚：`POST /admin/config/rollback` 指向历史版本。
-- 发布失败时旧配置保持生效。
+- 自动发布：Provider、账户、模型、价格、Combo、系统设置与模型同步写入成功后自动生成版本并切换生效，无需手动操作。
+- 校验：`POST /admin/config/validate`；写入响应也会附带 `config` 结果（`applied` / `unchanged` / `issues`）。
+- 非法配置：写入保留但不生效，旧版本继续服务；修复后下一次合法写入或每日维护自动收敛。
+- 故障恢复：`POST /admin/config/publish` 保留为兼容/重试入口，仅在写入成功但 KV 发布失败等异常场景使用，不再是日常步骤。
+- 回滚：`POST /admin/config/rollback` 指向历史版本；回滚会先恢复 D1 配置表，再切换 KV 指针。
 - 配置传播最长约 60 秒；API Key 吊销直读 D1，立即生效。
 
 ## 9. 升级流程
@@ -207,8 +207,10 @@ npm run deploy
 本版本的 `0007_plaintext_provider_api_keys.sql` 只新增 `provider_accounts.api_key_plain`，不修改或删除历史列。升级后：
 
 1. 执行远程迁移。
-2. 重新录入上游 Key（选择 `apiKey` 明文或 `secretRef`），并重新发布配置。
+2. 重新录入上游 Key（选择 `apiKey` 明文或 `secretRef`），保存后自动发布生效。
 3. 确认推理与网关自测正常后，再删除不再需要的 `ENCRYPTION_KEY` Secret。
+
+升级前存在未发布的 D1 变更时，无需手动发布：下一次配置写入会自动发布，每日维护也会尝试一次自动发布；`POST /admin/config/publish` 仍可立即触发，作为兼容与故障恢复入口。
 
 ## 10. 故障排查
 
@@ -222,12 +224,12 @@ npm run deploy
 | 推理 401 | Key 被禁用/过期/轮换后旧 Key |
 | Provider 测试返回 `PROVIDER_NO_ACCOUNT` | 先在 Provider 的「账户」面板添加上游账户 |
 | Provider 同步模型 404/405 | 上游没有兼容的 `/models` 端点；手动添加模型，或改用 `/admin/gateway/test` 做 Chat 测试 |
-| 模型存在但路由不到 | 模型未启用、Provider 被禁用、存在同名歧义，或配置未发布；用「路由诊断」查看 |
+| 模型存在但路由不到 | 模型未启用、Provider 被禁用、存在同名歧义，或配置未生效；用「路由诊断」查看 |
 | 网关自测失败 | 查看返回错误码：401/403 检查账户凭据，404 检查 Base URL/模型 ID，503 检查账户/熔断，504 检查超时 |
 | 推理 503 `PROVIDER_UNAVAILABLE` | 无可用账户、账户冷却或熔断打开 |
 | 模型路由 409 | 同名模型存在于多个 Provider，使用前缀或 Combo |
-| 配置发布 400 | 查看 `/admin/config/validate` 的问题列表 |
-| 修改配置 60 秒内未生效 | 未发布，或 KV 指针/缓存 TTL |
+| 配置未生效（写入返回 `config.applied=false`） | 查看 `/admin/config/validate` 或响应 `config.issues`；修复校验错误后重新保存 |
+| 修改配置 60 秒内未生效 | 配置尚未同步或 KV 指针/缓存 TTL；在「配置与审计」查看同步状态，必要时校验通过后点击「重试生效」 |
 | 上游请求被拒绝 | baseUrl 不是 HTTPS、包含私有地址/端口或重定向 |
 | Usage 未落库 | 队列消费失败；查看 DLQ，或临时设置 `USAGE_MODE=direct` |
 | 管理界面静态资源 404 | `assets.directory` 未指向 `./public` 或部署未上传 assets |
@@ -235,7 +237,7 @@ npm run deploy
 ## 11. 生产建议
 
 - 使用 `secretRef` 引用上游密钥，而不是通过管理 API 上传明文。
-- 上游 `apiKey` 以明文进入 `provider_accounts`、`config_versions.payload` 与 KV 快照；限制 D1 / KV 访问，不要导出历史配置版本，并定期清理不再需要的版本。
+- 上游 `apiKey` 以明文进入 `provider_accounts`、`config_versions.payload` 与 KV 快照；每次保存都会自动发布并累积版本，限制 D1 / KV 访问，不要导出历史配置版本，并定期清理不再需要的版本。
 - 为管理令牌使用独立的高熵值，并限制管理入口访问范围。
 - 为 API Key 设置模型白名单、RPM/TPM、并发与预算。
 - 为 Provider 配置 `extraConfig.breaker`，避免故障上游持续消耗请求。

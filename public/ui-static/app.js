@@ -95,6 +95,35 @@ import { initThemeToggle } from "./js/theme.js";
     toastTimer = setTimeout(() => toast.classList.add("hidden"), 4500);
   }
 
+  // 配置写接口会在响应中附带顶层 config 字段，统一按自动发布结果提示。
+  function notifyConfigOutcome(result, okMessage) {
+    const config = result && result.config;
+    if (!config) {
+      notify(okMessage, "ok");
+      return;
+    }
+    statusRefreshedAt = 0;
+    if (config.applied) {
+      notify(
+        okMessage +
+          (config.unchanged ? "（配置未变化）" : "，配置已自动生效 v" + config.version),
+        "ok",
+      );
+      return;
+    }
+    const issues = Array.isArray(config.issues) ? config.issues : [];
+    const errorCount = issues.filter((issue) => issue.severity === "error").length;
+    const reason =
+      config.error && config.error.message
+        ? config.error.message
+        : errorCount > 0
+          ? "存在 " + errorCount + " 个校验错误"
+          : issues.length > 0
+            ? "配置校验未通过（问题列表已截断）"
+            : "原因未知";
+    notify(okMessage + "，但配置未生效：" + reason, "bad");
+  }
+
   async function api(path, options) {
     const opts = options || {};
     const headers = { authorization: "Bearer " + state.token };
@@ -989,9 +1018,9 @@ import { initThemeToggle } from "./js/theme.js";
       const data = config.value.data || config.value || {};
       const version =
         data.activeVersion === null || data.activeVersion === undefined
-          ? "未发布"
+          ? "未生效"
           : "v" + data.activeVersion;
-      configEl.textContent = "配置 " + version + (data.pendingChanges ? " · 待发布" : "");
+      configEl.textContent = "配置 " + version + (data.pendingChanges ? " · 未同步" : "");
       configEl.className = "status-chip " + (data.pendingChanges ? "warn" : "ok");
     } else {
       configEl.textContent = "配置 --";
@@ -1531,12 +1560,12 @@ import { initThemeToggle } from "./js/theme.js";
       event.preventDefault();
       try {
         const payload = readForm(form, entity.fields, Boolean(row));
-        await api(entity.endpoint + (row ? "/" + row.id : ""), {
+        const result = await api(entity.endpoint + (row ? "/" + row.id : ""), {
           method: row ? "PUT" : "POST",
           body: payload,
         });
         closeModal();
-        notify("已保存", "ok");
+        notifyConfigOutcome(result, "已保存");
         state.providers = [];
         state.users = [];
         state.routeLookupsLoaded = false;
@@ -1550,8 +1579,8 @@ import { initThemeToggle } from "./js/theme.js";
   async function removeEntity(entity, row) {
     if (!confirm("确认删除 " + (row.name || row.modelId || row.id) + "？此操作不可撤销。")) return;
     try {
-      await api(entity.endpoint + "/" + row.id, { method: "DELETE" });
-      notify("已删除", "ok");
+      const result = await api(entity.endpoint + "/" + row.id, { method: "DELETE" });
+      notifyConfigOutcome(result, "已删除");
       state.providers = [];
       state.users = [];
       state.routeLookupsLoaded = false;
@@ -2208,7 +2237,7 @@ import { initThemeToggle } from "./js/theme.js";
         action: "preset",
         actionLabel: "从预设添加",
       },
-      note: "可以手工新建，也可以从预设添加。添加 Provider 后还需要账户、模型并发布配置。",
+      note: "可以手工新建，也可以从预设添加。添加 Provider 后还需要账户与模型；保存后会自动生效。",
       columns: [
         { label: "名称", key: "name", nowrap: true },
         { label: "类型", key: "type", mono: true, nowrap: true },
@@ -2258,7 +2287,10 @@ import { initThemeToggle } from "./js/theme.js";
             if (!confirm("从上游同步模型？同步结果默认禁用，需人工确认能力后启用。")) return;
             try {
               const result = await api("/admin/providers/" + row.id + "/sync-models", { method: "POST" });
-              notify("同步完成：新增 " + result.created + "，跳过 " + result.skipped, "ok");
+              notifyConfigOutcome(
+                result,
+                "同步完成：新增 " + result.created + "，跳过 " + result.skipped,
+              );
               await route();
             } catch (error) {
               notify(error.message, "bad");
@@ -2312,11 +2344,11 @@ import { initThemeToggle } from "./js/theme.js";
           label: "启用/停用",
           run: async (row) => {
             try {
-              await api("/admin/models/" + row.id, {
+              const result = await api("/admin/models/" + row.id, {
                 method: "PUT",
                 body: { enabled: row.enabled !== true },
               });
-              notify(row.enabled ? "模型已停用" : "模型已启用", "ok");
+              notifyConfigOutcome(result, row.enabled ? "模型已停用" : "模型已启用");
               await route();
             } catch (error) {
               notify(error.message, "bad");
@@ -2529,7 +2561,7 @@ import { initThemeToggle } from "./js/theme.js";
         return;
       }
       try {
-        await api("/admin/providers/" + provider.id + "/accounts", {
+        const result = await api("/admin/providers/" + provider.id + "/accounts", {
           method: "POST",
           body: {
             name: String(data.get("name") || ""),
@@ -2541,7 +2573,7 @@ import { initThemeToggle } from "./js/theme.js";
           },
         });
         closeModal();
-        notify("账户已添加", "ok");
+        notifyConfigOutcome(result, "账户已添加");
         await route();
         await openAccounts(provider);
       } catch (error) {
@@ -2552,10 +2584,14 @@ import { initThemeToggle } from "./js/theme.js";
     $$("[data-toggle]", body).forEach((button) => {
       button.onclick = async () => {
         try {
-          await api("/admin/providers/" + provider.id + "/accounts/" + button.dataset.toggle, {
+          const result = await api("/admin/providers/" + provider.id + "/accounts/" + button.dataset.toggle, {
             method: "PUT",
             body: { enabled: button.dataset.enabled !== "true" },
           });
+          notifyConfigOutcome(
+            result,
+            button.dataset.enabled === "true" ? "账户已停用" : "账户已启用",
+          );
           await route();
           await openAccounts(provider);
         } catch (error) {
@@ -2568,11 +2604,11 @@ import { initThemeToggle } from "./js/theme.js";
         const apiKey = prompt("输入新的上游 API Key（留空取消）");
         if (!apiKey) return;
         try {
-          await api("/admin/providers/" + provider.id + "/accounts/" + button.dataset.key, {
+          const result = await api("/admin/providers/" + provider.id + "/accounts/" + button.dataset.key, {
             method: "PUT",
             body: { apiKey },
           });
-          notify("密钥已更新", "ok");
+          notifyConfigOutcome(result, "密钥已更新");
           await route();
           await openAccounts(provider);
         } catch (error) {
@@ -2584,9 +2620,10 @@ import { initThemeToggle } from "./js/theme.js";
       button.onclick = async () => {
         if (!confirm("删除该账户？")) return;
         try {
-          await api("/admin/providers/" + provider.id + "/accounts/" + button.dataset.delete, {
+          const result = await api("/admin/providers/" + provider.id + "/accounts/" + button.dataset.delete, {
             method: "DELETE",
           });
+          notifyConfigOutcome(result, "账户已删除");
           await route();
           await openAccounts(provider);
         } catch (error) {
@@ -2709,10 +2746,9 @@ import { initThemeToggle } from "./js/theme.js";
         '<button class="btn" id="setup-sync">同步模型</button>' +
         '<button class="btn" id="setup-models">查看模型</button>' +
         '<button class="btn" id="setup-test">模型列表测试</button>' +
-        '<button class="btn" id="setup-chat-test">Chat 自测</button>' +
-        '<button class="btn primary" id="setup-publish">去发布配置</button>' +
+        '<button class="btn primary" id="setup-chat-test">Chat 自测</button>' +
         "</div>" +
-        '<p class="hint">完成账户和模型后，请在「配置与审计」发布配置版本；未发布时推理入口会回退到 D1 草稿。</p>',
+        '<p class="hint">账户与模型保存后会自动生效，最迟约 60 秒同步到所有实例。</p>',
     );
     $("#setup-accounts", body).onclick = () => {
       closeModal();
@@ -2724,7 +2760,10 @@ import { initThemeToggle } from "./js/theme.js";
         const result = await api("/admin/providers/" + provider.id + "/sync-models", {
           method: "POST",
         });
-        notify("同步完成：新增 " + result.created + "，跳过 " + result.skipped, "ok");
+        notifyConfigOutcome(
+          result,
+          "同步完成：新增 " + result.created + "，跳过 " + result.skipped,
+        );
         state.routeLookupsLoaded = false;
         closeModal();
         await route();
@@ -2769,10 +2808,6 @@ import { initThemeToggle } from "./js/theme.js";
       } catch (error) {
         notify(error.message, "bad");
       }
-    };
-    $("#setup-publish", body).onclick = () => {
-      closeModal();
-      location.hash = "#/config";
     };
   }
 
@@ -2836,10 +2871,11 @@ import { initThemeToggle } from "./js/theme.js";
         if (!model) return;
         if (!model.enabled && !confirm("启用该模型？请确认已经在编辑表单中确认能力。")) return;
         try {
-          await api("/admin/models/" + model.id, {
+          const result = await api("/admin/models/" + model.id, {
             method: "PUT",
             body: { enabled: model.enabled !== true },
           });
+          notifyConfigOutcome(result, model.enabled ? "模型已停用" : "模型已启用");
           state.routeLookupsLoaded = false;
           closeModal();
           await route();
@@ -2855,7 +2891,10 @@ import { initThemeToggle } from "./js/theme.js";
         const result = await api("/admin/providers/" + provider.id + "/sync-models", {
           method: "POST",
         });
-        notify("同步完成：新增 " + result.created + "，跳过 " + result.skipped, "ok");
+        notifyConfigOutcome(
+          result,
+          "同步完成：新增 " + result.created + "，跳过 " + result.skipped,
+        );
         state.routeLookupsLoaded = false;
         closeModal();
         await route();
@@ -3209,26 +3248,26 @@ import { initThemeToggle } from "./js/theme.js";
 
     const validation = config && config.validation;
     const invalid = Boolean(validation && validation.valid === false);
-    const unpublished = Boolean(
+    const notEffective = Boolean(
       config && (config.activeVersion === null || config.activeVersion === undefined),
     );
     const pending = Boolean(config && config.pendingChanges);
     const issues = (validation && validation.issues) || [];
 
     let guide = "";
-    if (invalid || unpublished) {
+    if (invalid || notEffective) {
       const count = issues.filter((issue) => issue.severity === "error").length;
       guide =
         '<div class="callout warn"><strong>' +
-        (invalid ? "配置校验未通过" : "配置尚未发布") +
+        (invalid ? "配置校验未通过" : "配置尚未生效") +
         "</strong><p>" +
         (invalid
-          ? "存在 " + count + " 个错误，发布前请先修复。"
-          : "当前使用 D1 草稿配置，建议完成初始化后发布版本。") +
+          ? "存在 " + count + " 个错误，配置变更尚未生效；修复后保存即可自动生效。"
+          : "尚未生成生效版本，保存任一配置后会自动生效。") +
         ' <a href="#/setup">前往快速开始</a></p></div>';
     } else if (pending) {
       guide =
-        '<div class="callout warn"><strong>有未发布的变更</strong><p>修改只有发布后才会对推理入口生效。<a href="#/config">前往配置与审计</a></p></div>';
+        '<div class="callout warn"><strong>有未同步的变更</strong><p>当前保存的配置尚未生效；请在配置与审计页查看，校验通过后可重试生效。<a href="#/config">前往配置与审计</a></p></div>';
     }
 
     const requestSeries = buckets.map((bucket) => bucket.requests || 0);
@@ -3248,11 +3287,11 @@ import { initThemeToggle } from "./js/theme.js";
         {
           label: "生效配置",
           value: config
-            ? unpublished
-              ? "未发布"
+            ? notEffective
+              ? "未生效"
               : "v" + config.activeVersion
             : '<span class="metric-error">不可用</span>',
-          hint: config ? (pending ? "有待发布变更" : "已同步") : "",
+          hint: config ? (pending ? "有未同步变更" : "已同步") : "",
         },
         {
           label: "近 30 天请求",
@@ -3570,15 +3609,12 @@ import { initThemeToggle } from "./js/theme.js";
     root.innerHTML =
       '<div class="section-head"><h2>快速开始</h2><div class="actions">' +
       '<button class="btn" id="setup-refresh">刷新</button>' +
-      (data.config && data.config.pendingChanges
-        ? '<button class="btn primary" id="setup-publish">发布配置</button>'
-        : "") +
       "</div></div>" +
       '<div class="callout ' +
       (data.readyForInference ? "ok" : "warn") +
       '"><strong>' +
       (data.readyForInference ? "网关已具备推理条件。" : "还需要完成初始化步骤。") +
-      '</strong> <span class="muted">按清单完成 Provider、账户、模型、发布和 API Key。</span></div>' +
+      '</strong> <span class="muted">按清单完成 Provider、账户、模型和 API Key。</span></div>' +
       cards([
         {
           label: "Provider",
@@ -3592,8 +3628,11 @@ import { initThemeToggle } from "./js/theme.js";
         },
         {
           label: "配置版本",
-          value: data.config && data.config.activeVersion !== null ? "v" + data.config.activeVersion : "未发布",
-          hint: data.config && data.config.pendingChanges ? "有未发布变更" : "已同步",
+          value:
+            data.config && data.config.activeVersion !== null
+              ? "v" + data.config.activeVersion
+              : "未生效",
+          hint: data.config && data.config.pendingChanges ? "有未同步变更" : "自动同步",
         },
         {
           label: "活跃 API Key",
@@ -3642,11 +3681,6 @@ import { initThemeToggle } from "./js/theme.js";
           "</div></div>"
         : "");
     $("#setup-refresh", root).onclick = () => route();
-    if ($("#setup-publish", root)) {
-      $("#setup-publish", root).onclick = () => {
-        location.hash = "#/config";
-      };
-    }
   }
 
   function renderGatewayTest(data) {
@@ -4074,16 +4108,19 @@ import { initThemeToggle } from "./js/theme.js";
     ]);
     const status = current.data;
     const issues = (status.validation && status.validation.issues) || [];
+    const canRetry = Boolean(
+      status.pendingChanges && status.validation && status.validation.valid,
+    );
     root.innerHTML =
       cards([
         {
           label: "生效版本",
-          value: status.activeVersion === null ? "未发布" : "v" + status.activeVersion,
+          value: status.activeVersion === null ? "未生效" : "v" + status.activeVersion,
           hint: status.activeChecksum ? status.activeChecksum.slice(0, 12) : "",
         },
         {
-          label: "待发布",
-          value: status.pendingChanges ? "是" : "否",
+          label: "同步状态",
+          value: status.pendingChanges ? "未同步" : "已同步",
           hint: status.pendingChecksum ? status.pendingChecksum.slice(0, 12) : "",
         },
         {
@@ -4094,14 +4131,18 @@ import { initThemeToggle } from "./js/theme.js";
         { label: "版本总数", value: String((versions.data || []).length) },
       ]) +
       (status.pendingChanges
-        ? '<div class="callout warn"><strong>有未发布变更</strong><p>Provider、账户、模型或系统设置已修改，请发布配置版本后推理入口才会稳定使用新配置。</p></div>'
+        ? '<div class="callout warn"><strong>配置尚未同步</strong><p>' +
+          (status.validation && status.validation.valid === false
+            ? "保存的配置未通过校验，推理入口仍在用上一个生效版本。修复校验错误后再保存即可自动生效。"
+            : "保存的配置尚未生效，推理入口仍在用上一个生效版本；可点击“重试生效”或等待每日维护自动重试。") +
+          "</p></div>"
         : "") +
       '<div class="section-head"><h2>配置操作</h2><div class="actions">' +
       '<button class="btn" id="validate-config">校验配置</button>' +
-      '<button class="btn primary" id="publish-config">发布配置</button>' +
+      (canRetry ? '<button class="btn" id="retry-publish">重试生效</button>' : "") +
       "</div></div>" +
       '<div class="card"><h3>系统设置</h3>' +
-      '<p class="hint">保存后需要发布配置版本才会生效。数值单位为字节或毫秒。</p>' +
+      '<p class="hint">保存后自动生效，最迟约 60 秒。数值单位为字节或毫秒。</p>' +
       settingsFormHtml(settings.data || {}) +
       '<div class="form-actions"><button class="btn primary" id="save-settings">保存设置</button></div>' +
       "</div>" +
@@ -4179,8 +4220,8 @@ import { initThemeToggle } from "./js/theme.js";
       let payload;
       try {
         payload = readSettingsForm(root);
-        await api("/admin/settings", { method: "PUT", body: payload });
-        notify("设置已保存，请发布配置以生效", "ok");
+        const result = await api("/admin/settings", { method: "PUT", body: payload });
+        notifyConfigOutcome(result, "设置已保存");
         await route();
       } catch (error) {
         notify(error.message, "bad");
@@ -4194,26 +4235,33 @@ import { initThemeToggle } from "./js/theme.js";
         notify(error.message, "bad");
       }
     };
-    $("#publish-config", root).onclick = async () => {
-      const note = prompt("发布说明（可留空）", "") || undefined;
-      try {
-        const result = await api("/admin/config/publish", { method: "POST", body: note ? { note } : {} });
-        notify(
-          result.data.unchanged ? "配置无变化，版本 v" + result.data.version + " 保持生效" : "已发布 v" + result.data.version,
-          "ok",
-        );
-        statusRefreshedAt = 0;
-        await route();
-      } catch (error) {
-        notify(error.message, "bad");
-        if (error.payload && error.payload.error && error.payload.error.details) {
-          modal(
-            "发布失败",
-            '<pre class="mono">' + esc(JSON.stringify(error.payload.error.details, null, 2)) + "</pre>",
+    if ($("#retry-publish", root)) {
+      $("#retry-publish", root).onclick = async () => {
+        try {
+          const result = await api("/admin/config/publish", {
+            method: "POST",
+            body: { note: "手动重试生效" },
+          });
+          const data = result.data || result;
+          notify(
+            data.unchanged
+              ? "配置无变化，版本 v" + data.version + " 保持生效"
+              : "已重新发布 v" + data.version,
+            "ok",
           );
+          statusRefreshedAt = 0;
+          await route();
+        } catch (error) {
+          notify(error.message, "bad");
+          if (error.payload && error.payload.error && error.payload.error.details) {
+            modal(
+              "发布失败",
+              '<pre class="mono">' + esc(JSON.stringify(error.payload.error.details, null, 2)) + "</pre>",
+            );
+          }
         }
-      }
-    };
+      };
+    }
     $$("[data-rollback]", root).forEach((button) => {
       button.onclick = async () => {
         if (!confirm("回滚到 v" + button.dataset.rollback + "？")) return;

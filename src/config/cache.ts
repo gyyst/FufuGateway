@@ -74,9 +74,9 @@ async function buildFallbackRuntime(env: GatewayEnv): Promise<RuntimeConfig> {
 /**
  * 读取运行期配置。
  *
- * 优先使用 KV 中已发布的版本快照；没有发布版本时回退到 D1 当前数据
+ * 优先使用 KV 中已发布的版本快照；没有生效版本时回退到 D1 当前数据
  * （内存缓存，最长 60 秒），便于首次启动与本地开发。KV 故障时保持
- * 最后一次可用配置，避免流量切换到未发布数据。
+ * 最后一次可用配置，避免流量切换到尚未生效的 D1 数据。
  */
 export async function loadRuntimeConfig(
   env: GatewayEnv,

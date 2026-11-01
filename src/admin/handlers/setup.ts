@@ -20,7 +20,6 @@ type SetupStepId =
   | "provider"
   | "account"
   | "model"
-  | "publish"
   | "api_key"
   | "gateway_test";
 
@@ -168,19 +167,6 @@ export async function setupStatusHandler(c: Context<AppEnv>): Promise<Response> 
             ? `${models} 个模型已同步/创建，但尚未启用。`
             : "同步上游模型或手动添加模型，并确认能力后启用。",
       action: { page: "providers" },
-    },
-    {
-      id: "publish",
-      label: "发布配置版本",
-      complete: configPublished,
-      detail: configPublished
-        ? `当前配置版本 v${config.activeVersion} 已生效。`
-        : config.activeVersion === null
-          ? "配置尚未发布，推理入口会回退到 D1 草稿。"
-          : config.pendingChanges
-            ? "D1 中有未发布变更。"
-            : "配置校验未通过。",
-      action: { page: "config" },
     },
     {
       id: "api_key",

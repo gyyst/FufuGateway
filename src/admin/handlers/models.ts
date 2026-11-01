@@ -17,8 +17,8 @@ import {
 } from "../../config/repository";
 import { modelCreateSchema, modelUpdateSchema, pricingCreateSchema } from "../schemas";
 import {
+  configMutationResponse,
   parseAdminBody,
-  recordAudit,
   requireParam,
   validateModelId,
 } from "../shared";
@@ -93,8 +93,15 @@ export async function createModelHandler(c: Context<AppEnv>): Promise<Response> 
     enabled: input.enabled,
     source: "manual",
   });
-  await recordAudit(c, "model.create", "model", model.id, { modelId: model.modelId, providerId: model.providerId });
-  return c.json({ data: model }, 201);
+  return configMutationResponse(
+    c,
+    "model.create",
+    "model",
+    model.id,
+    { modelId: model.modelId, providerId: model.providerId },
+    { data: model },
+    201,
+  );
 }
 
 function mergeCapabilities(model: ModelRecord, input: Record<string, unknown>): ModelCapabilities {
@@ -160,16 +167,28 @@ export async function updateModelHandler(c: Context<AppEnv>): Promise<Response> 
   if (updated.pricing.reasoningPrice === undefined) delete updated.pricing.reasoningPrice;
 
   await replaceModel(c.env.DB, updated);
-  await recordAudit(c, "model.update", "model", model.id, { modelId: updated.modelId });
-  return c.json({ data: updated });
+  return configMutationResponse(
+    c,
+    "model.update",
+    "model",
+    model.id,
+    { modelId: updated.modelId },
+    { data: updated },
+  );
 }
 
 export async function deleteModelHandler(c: Context<AppEnv>): Promise<Response> {
   const model = await getModel(c.env.DB, requireParam(c, "id"));
   if (model === undefined) throw new GatewayError({ code: "NOT_FOUND", message: "Model not found" });
   await deleteModel(c.env.DB, model.id);
-  await recordAudit(c, "model.delete", "model", model.id, { modelId: model.modelId });
-  return c.json({ deleted: true, id: model.id });
+  return configMutationResponse(
+    c,
+    "model.delete",
+    "model",
+    model.id,
+    { modelId: model.modelId },
+    { deleted: true, id: model.id },
+  );
 }
 
 export async function listPricingHandler(c: Context<AppEnv>): Promise<Response> {
@@ -189,16 +208,19 @@ export async function createPricingHandler(c: Context<AppEnv>): Promise<Response
     currency: input.currency,
     effectiveFrom: input.effectiveFrom,
   });
-  await recordAudit(c, "pricing.create", "pricing", record.id, {
-    providerId: record.providerId,
-    modelId: record.modelId,
-  });
-  return c.json({ data: record }, 201);
+  return configMutationResponse(
+    c,
+    "pricing.create",
+    "pricing",
+    record.id,
+    { providerId: record.providerId, modelId: record.modelId },
+    { data: record },
+    201,
+  );
 }
 
 export async function deletePricingHandler(c: Context<AppEnv>): Promise<Response> {
   const id = requireParam(c, "id");
   await deletePricing(c.env.DB, id);
-  await recordAudit(c, "pricing.delete", "pricing", id);
-  return c.json({ deleted: true, id });
+  return configMutationResponse(c, "pricing.delete", "pricing", id, undefined, { deleted: true, id });
 }

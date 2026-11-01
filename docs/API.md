@@ -93,6 +93,8 @@ Gemini 模型目录与单个模型查询。
 
 所有路径前缀 `/admin`，需要管理员认证。写操作会写入审计日志。
 
+会进入配置快照的写操作（Provider、账户、模型、价格、Combo、系统设置、`sync-models`）在保存成功后自动发布配置：响应在原有字段之外附带顶层 `config` 对象，日常流程无需调用 `/admin/config/publish`。跨 isolate 生效受缓存 TTL 与 KV 传播限制，最迟约 60 秒。
+
 ### 3.1 Provider
 
 | 方法 | 路径 | 说明 |
@@ -221,20 +223,50 @@ Combo 字段：`name`（含 `*`/`?` 时为通配符模式）、`strategy`、`nod
 
 ### 3.8 配置版本
 
+每次有效配置写入都会自动生成版本并切换生效，日常流程不需要手动发布。
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/admin/config/current` | 当前生效版本、待发布校验、待发布变更 |
-| POST | `/admin/config/validate` | 校验 D1 草稿 |
-| POST | `/admin/config/publish` | `{ "note": "..." }` 发布 |
+| GET | `/admin/config/current` | 当前生效版本、同步状态（`pendingChanges`）与校验结果 |
+| POST | `/admin/config/validate` | 校验 D1 当前配置 |
+| POST | `/admin/config/publish` | **Deprecated** 兼容/故障恢复入口：`{ "note": "..." }` 立即重新发布 D1 当前配置；正常保存无需调用 |
 | GET | `/admin/config/versions?limit=50` | 版本列表 |
-| POST | `/admin/config/rollback` | `{ "version": 3 }` 回滚 |
+| POST | `/admin/config/rollback` | `{ "version": 3 }` 回滚：校验历史 payload、恢复 D1 配置并切换 KV 指针 |
+
+#### 配置写入响应
+
+会修改配置的写接口（Provider、账户、模型、价格、Combo、系统设置、`sync-models`）在实体写入成功后自动发布配置，响应保留原有字段并追加顶层 `config`：
+
+```json
+{
+  "data": { "...": "原实体数据" },
+  "config": {
+    "applied": true,
+    "unchanged": false,
+    "version": 7,
+    "checksum": "…",
+    "issues": [{ "severity": "warning", "code": "PROVIDER_NO_ACCOUNT", "message": "…" }]
+  }
+}
+```
+
+- `applied=true` 且 `unchanged=true`：配置与当前生效版本一致，没有新增版本。
+- `applied=false`：写入已保存但未生效，旧版本继续服务。`version` 为仍在生效的旧版本（可能为 `null`）；`issues` 为校验问题（最多 50 条）；基础设施失败时附带 `error: { code, message }`。
+- 非法配置（`issues` 含 `error`）不会中断保存；修复后下一次合法写入或每日维护会自动收敛。
+- 响应状态码仍为实体写入的 200/201，不因配置未生效变为错误。
+
+`POST /admin/config/publish` 仅保留为兼容与故障恢复入口（例如 KV 写入失败后重试），返回 `{ "data": { "version", "checksum", "unchanged" } }`；不再作为日常步骤，管理台只在检测到未同步且校验通过时提供“重试生效”。
+
+回滚会同时恢复 D1 中的 `providers / provider_accounts / models / combos / pricing / system_settings`，保证回滚后 D1 与生效版本一致，后续保存不会撤销回滚。包含非空旧版 `aliases` / `wildcards` 的快照无法无损还原，回滚会被拒绝（`CONFIG_INVALID`）；升级前以加密字段保存的旧版本也可能因账户无凭据被校验拒绝。更早期的快照即使 `aliases` / `wildcards` 为空，其历史 checksum 仍包含这些字段，回滚后可能短暂显示“未同步”，下一次保存或重试生效会自动收敛。
+
+自动发布会持续写入 `config_versions.payload`，其中可能包含明文上游 `apiKey`；请限制版本读取权限并定期清理旧版本。
 
 ### 3.9 系统设置
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/admin/settings` | 读取 JSON 设置 |
-| PUT | `/admin/settings` | 批量保存设置，发布配置后生效 |
+| PUT | `/admin/settings` | 批量保存设置，保存后自动发布并生效 |
 
 允许的键：`gateway.name`、`compat.default_policy`、`limits.*`、`timeouts.request_ms`、`logging.retention_days`、`cors.allowed_origins`、`config.cache_ttl_ms`。
 

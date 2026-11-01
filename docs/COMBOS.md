@@ -60,13 +60,13 @@ Combo 是由多个节点组成的虚拟模型。节点可以是 Provider 模型�
 ### Fusion
 
 - 仅非流式。流式请求返回 `UNSUPPORTED_FEATURE`。
-- 必须配置 `judgeModel`，否则发布校验失败。
+- 必须配置 `judgeModel`，否则配置校验失败。
 - 候选结果会拼接为 Judge Prompt，由 Judge Model 生成最终答案。
 - 候选与 Judge 的 Token 费用目前只记录最终响应的 Usage；候选调用成本未并入单次统计（列为限制）。
 
 ## 3. glob Combo 与嵌套节点
 
-Combo 节点可以引用其他 Combo，发布/解析时展开：
+Combo 节点可以引用其他 Combo，校验/解析时展开：
 
 - Combo 引用 → 嵌套 Combo 节点，策略取被引用 Combo。
 - 名称含 `*` 或 `?` 的 Combo 是 glob 模式：可作为路由入口按 pattern 命中，也可被其他 Combo 以 `{ "combo": "pattern" }` 引用。
@@ -113,7 +113,7 @@ Combo 节点可以引用其他 Combo，发布/解析时展开：
 | 节点超时 | 继承 | 节点 `timeoutMs` |
 | 请求总预算 | 300s | `timeouts.request_ms` |
 
-循环引用在发布校验与运行期归一化两处检测。
+循环引用在配置校验与运行期归一化两处检测。
 
 ## 6. 执行树
 
@@ -237,7 +237,7 @@ Combo 节点可以引用其他 Combo，发布/解析时展开：
 ## 9. 管理与校验
 
 - 创建/更新：`POST /admin/combos`、`PUT /admin/combos/:id`
-- 校验：`POST /admin/combos/:id/validate`，返回与 Combo 相关的发布校验问题。
+- 校验：`POST /admin/combos/:id/validate`，返回与 Combo 相关的配置校验问题。
 - 预览：`POST /admin/combos/:id/preview`，逐节点展示解析后的目标与策略。
 - 管理界面：`/ui` → Combo 页面，支持 JSON 节点编辑、校验与预览。
-- 发布：在「配置与审计」发布后才会影响推理流量。
+- 生效：创建或更新保存后自动发布配置，最迟约 60 秒同步到所有实例。

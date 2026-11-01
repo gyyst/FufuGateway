@@ -60,8 +60,7 @@ admin POST /admin/combos '{
   "sticky":{"enabled":true,"ttlSeconds":600,"mode":"round_robin"}
 }' > /dev/null
 
-echo "7. 发布配置"
-admin POST /admin/config/publish '{"note":"demo setup"}' | jq .data
+echo "7. 配置已在保存时自动发布；跨实例生效最迟约 60 秒"
 
 echo
 echo "尝试一次推理："

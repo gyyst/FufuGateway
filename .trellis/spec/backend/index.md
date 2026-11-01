@@ -18,6 +18,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Database Guidelines](./database-guidelines.md) | ORM patterns, queries, migrations | To fill |
 | [Error Handling](./error-handling.md) | Error types, handling strategies | To fill |
 | [Security Guidelines](./security-guidelines.md) | Secret 清单、下游 Key 哈希与上游凭据存储契约 | Filled |
+| [Config Publishing](./config-publishing.md) | 配置写入自动发布、响应契约、回滚恢复 D1 与设置键映射 | Filled |
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
 

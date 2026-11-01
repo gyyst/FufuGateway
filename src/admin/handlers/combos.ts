@@ -21,8 +21,8 @@ import { isPrivateUpstreamAllowed } from "../../security/ssrf";
 import { comboCreateSchema, comboUpdateSchema } from "../schemas";
 import {
   assertVirtualNameAvailable,
+  configMutationResponse,
   parseAdminBody,
-  recordAudit,
   requireParam,
   validateComboNodeInput,
   validateVirtualName,
@@ -55,8 +55,15 @@ export async function createComboHandler(c: Context<AppEnv>): Promise<Response> 
     priority: input.priority,
     enabled: input.enabled,
   });
-  await recordAudit(c, "combo.create", "combo", combo.id, { name: combo.name });
-  return c.json({ data: combo }, 201);
+  return configMutationResponse(
+    c,
+    "combo.create",
+    "combo",
+    combo.id,
+    { name: combo.name },
+    { data: combo },
+    201,
+  );
 }
 
 export async function updateComboHandler(c: Context<AppEnv>): Promise<Response> {
@@ -84,16 +91,28 @@ export async function updateComboHandler(c: Context<AppEnv>): Promise<Response> 
     updatedAt: Date.now(),
   };
   await replaceCombo(c.env.DB, updated);
-  await recordAudit(c, "combo.update", "combo", combo.id, { name: updated.name });
-  return c.json({ data: updated });
+  return configMutationResponse(
+    c,
+    "combo.update",
+    "combo",
+    combo.id,
+    { name: updated.name },
+    { data: updated },
+  );
 }
 
 export async function deleteComboHandler(c: Context<AppEnv>): Promise<Response> {
   const combo = await getCombo(c.env.DB, requireParam(c, "id"));
   if (combo === undefined) throw new GatewayError({ code: "NOT_FOUND", message: "Combo not found" });
   await deleteCombo(c.env.DB, combo.id);
-  await recordAudit(c, "combo.delete", "combo", combo.id, { name: combo.name });
-  return c.json({ deleted: true, id: combo.id });
+  return configMutationResponse(
+    c,
+    "combo.delete",
+    "combo",
+    combo.id,
+    { name: combo.name },
+    { deleted: true, id: combo.id },
+  );
 }
 
 export async function validateComboHandler(c: Context<AppEnv>): Promise<Response> {

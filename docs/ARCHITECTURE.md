@@ -113,7 +113,7 @@ IR 定义在 `src/ir/`：
    - 只支持 `*` 与 `?`，编译为锚定正则，不开放用户正则。
 5. 未命中返回 `MODEL_NOT_FOUND`。
 
-发布期冲突检测：Combo 与原生模型/Provider 同名、glob Combo 非法、目标不可解析、Combo 循环/深度/节点数超限。
+校验阶段冲突检测：Combo 与原生模型/Provider 同名、glob Combo 非法、目标不可解析、Combo 循环/深度/节点数超限。
 
 权限约束在解析后应用：模型白名单与 Provider 白名单会过滤候选；Combo 在叶子执行时逐项校验。
 
@@ -190,19 +190,27 @@ IR 定义在 `src/ir/`：
 
 ## 10. 配置发布
 
+每次配置写入（Provider、账户、模型、Combo、价格、系统设置、模型同步、每日维护）成功后都会自动执行发布：
+
 ```text
-D1 草稿数据
+D1 写入
   → 构建 ConfigSnapshot
   → 校验（路由冲突、Combo 图、URL、价格、能力）
+  → checksum 未变化：不生成新版本（unchanged）
+  → 存在校验 error：写入保留但不生效，旧版本继续服务
   → config_versions 写入 payload + checksum
   → KV config:snapshot:<version>
   → KV config:current 原子切换
   → Worker 隔离内缓存失效
 ```
 
-- 无发布版本时回退到 D1 当前数据（内存缓存，最长 60 秒），便于首次启动。
-- KV 故障时保持最后一次可用配置，避免切换到未发布数据。
-- 回滚重新校验历史 payload 后切换指针。
+- 写接口响应附带顶层 `config`（`applied` / `unchanged` / `version` / `checksum` / `issues`），调用方无需再手动发布。
+- 无生效版本时回退到 D1 当前数据（内存缓存，最长 60 秒），便于首次启动。
+- KV 故障时保持最后一次可用配置，旧版本继续服务；写入本身保留，可在恢复后通过 `POST /admin/config/publish` 重试。
+- 回滚会先校验历史 payload，再用单个 D1 batch 重建六张配置表，最后切换 KV 指针；回滚后 D1 与生效版本一致，后续保存不会撤销回滚。
+- 旧版 `aliases` / `wildcards` 快照无法无损还原，回滚时会被拒绝。
+- 非法配置采用“保存但不生效”：下一次合法写入或每日维护会自动收敛。
+- 跨 isolate 生效受 KV 传播与 `config.cache_ttl_ms`（默认 60 秒）限制，管理台文案统一为“最迟约 60 秒生效”。
 - API Key 认证直接查询 D1，不经过配置快照。
 
 ## 11. Cloudflare 服务职责
@@ -236,7 +244,7 @@ DO 分片：
 - 请求体与 SSE 事件大小限制。
 - 管理面与推理面独立鉴权；管理令牌支持常量时间比较，也支持 admin scope 的 API Key。
 - 日志脱敏：认证头、API Key、Token、Secret 等字段与常见密钥模式。
-- 配置校验在发布前执行，失败保持旧配置可用。
+- 配置校验在每次配置写入后、自动发布前执行；失败时保留写入但保持旧配置可用。
 
 ## 14. 扩展点
 

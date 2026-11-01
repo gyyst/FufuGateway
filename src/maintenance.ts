@@ -1,5 +1,6 @@
 import type { GatewayEnv } from "./env";
 import { listProviders } from "./config/repository";
+import { autoPublish } from "./config/snapshot";
 import { selectAnyProviderAccount } from "./execution/accounts";
 import { syncProviderModels } from "./models/sync";
 
@@ -108,7 +109,7 @@ async function autoSyncModels(env: GatewayEnv): Promise<void> {
 }
 
 /**
- * 定时维护：可选模型同步、按保留期清理请求日志（可归档到 R2），并裁剪过旧汇总。
+ * 定时维护：可选模型同步、自动发布配置、按保留期清理请求日志（可归档到 R2），并裁剪过旧汇总。
  */
 export async function handleScheduled(
   _controller: ScheduledController,
@@ -119,6 +120,18 @@ export async function handleScheduled(
   const cutoff = Date.now() - days * DAY_MS;
   try {
     await autoSyncModels(env);
+    const config = await autoPublish(env, { createdBy: "system", reason: "maintenance" });
+    console.log(
+      JSON.stringify({
+        level: config.applied ? "info" : "warn",
+        msg: "maintenance.config_published",
+        applied: config.applied,
+        unchanged: config.unchanged,
+        version: config.version,
+        issues: config.issues.length,
+        ...(config.error === undefined ? {} : { error: config.error.code }),
+      }),
+    );
     const deleted = await pruneRequestLogs(env, cutoff);
     await env.DB.prepare("DELETE FROM usage_rollups WHERE day < date('now', '-365 days')").run();
     console.log(

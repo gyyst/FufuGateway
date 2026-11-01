@@ -122,4 +122,4 @@ return c.json({ data: sanitizeAccount(account) });
 
 > **Warning**: 修改哈希算法、域前缀或 Secret 名称属于破坏性变更。现存 `key_hash` 无法反推重算，升级后所有旧下游 Key 立即失效，必须在 `README.md` / `docs/DEPLOY.md` 写明并要求重新签发。
 
-> **Warning**: 上游 `apiKey` 明文存储意味着 D1 导出、备份、只读 SQL 访问、`config_versions.payload` 与 KV 快照都会泄露上游 Key。生产环境优先使用 `secretRef`，并限制 Cloudflare 账户与 D1 / KV 访问。
+> **Warning**: 上游 `apiKey` 明文存储意味着 D1 导出、备份、只读 SQL 访问、`config_versions.payload` 与 KV 快照都会泄露上游 Key。每次有效配置写入都会自动发布并新增版本，历史中会持续保留含明文 Key 的快照；生产环境优先使用 `secretRef`，限制 Cloudflare 账户与 D1 / KV 访问，并定期清理旧 `config_versions`。

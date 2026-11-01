@@ -16,7 +16,7 @@
 | 流式 | 字节级增量 SSE、任意 Chunk 切分、UTF-8 边界、取消传播、流内错误事件 |
 | 认证与配额 | API Key / 用户权限、模型与 Provider 白名单、RPM、TPM、并发、日/月预算 |
 | 用量 | 真实/估算 Usage 分离、缓存与推理 Token 计价、日/周/月汇总、请求执行树 |
-| 管理 | 完整 Admin API、配置版本发布/回滚、审计日志、可写管理界面 `/ui` |
+| 管理 | 完整 Admin API、配置自动发布/版本回滚、审计日志、可写管理界面 `/ui` |
 | 初始化引导 | Provider 预设、快速开始清单、路由诊断、网关自测、客户端接入页 |
 
 ## 架构
@@ -36,7 +36,7 @@ API Gateway（Hono）
   └─ Usage Engine（Queues → D1 日志与汇总）
 ```
 
-配置通过「D1 → 校验 → 版本快照 → KV 原子指针」发布，Worker 隔离内缓存最多 60 秒；API Key 吊销不依赖缓存。
+每次有效配置写入都会同步执行「D1 → 校验 → 版本快照 → KV 原子指针」，无需手动发布；Worker 隔离内缓存最多 60 秒，跨实例最迟约 60 秒生效。API Key 吊销不依赖缓存。
 
 ## 环境要求
 
@@ -68,16 +68,15 @@ ADMIN_TOKEN=change-me-admin-token
 ### 首次配置
 
 1. 打开 `http://localhost:8787/ui`，使用 `ADMIN_TOKEN` 登录。
-2. 进入「快速开始」，按清单完成 Secrets、Provider、账户、模型、发布和 API Key。
+2. 进入「快速开始」，按清单完成 Secrets、Provider、账户、模型和 API Key。
 3. 在「Provider」点击「从预设添加」，选择火山方舟、华为云 MaaS、OpenAI、Anthropic、Gemini、DeepSeek、Kimi、GLM、Qwen、OpenRouter 等预设，或填写自定义兼容端点。
 4. 添加账户。生产环境建议使用 Worker Secret 的 `secretRef`，不要通过页面保存明文密钥。
 5. 同步上游模型或手动添加模型。同步结果默认禁用，必须编辑并确认能力后再启用。
-6. 在「配置与审计」点击「发布配置」。
-7. 在「用户」创建用户，在「API Key」创建下游 Key（明文只显示一次）。
-8. 在「路由诊断」解析模型并运行网关自测；自测会产生真实上游费用，输出限制为 32 Token。
-9. 在「客户端接入」复制 Base URL、环境变量或 SDK 示例。
+6. 在「用户」创建用户，在「API Key」创建下游 Key（明文只显示一次）。
+7. 在「路由诊断」解析模型并运行网关自测；自测会产生真实上游费用，输出限制为 32 Token。
+8. 在「客户端接入」复制 Base URL、环境变量或 SDK 示例。
 
-发布前网关也可回退使用 D1 当前配置，但推荐显式发布。Provider 没有账户、模型全部禁用或配置未发布时，快速开始页会给出对应提示。
+配置在每次保存时自动校验并发布生效，无需额外操作；跨 isolate 最迟约 60 秒读取新版本。非法配置会保留写入但不生效，旧版本继续服务，修复后下一次合法保存会自动收敛。Provider 没有账户、模型全部禁用或配置校验失败时，快速开始页会给出对应提示。
 
 ### 客户端接入
 
@@ -199,7 +198,7 @@ docs/              架构、API、Provider、Combo、部署文档
 
 - 下游 API Key 只存 `SHA-256("fufu_api_key:" + key)` 与前缀，明文仅创建/轮换时返回一次。
 - 上游 API Key 通过 `apiKey` 提交时以明文存入 D1（并进入配置快照与 KV）；生产环境推荐通过 `secretRef` 引用 Worker Secret。
-- 任何能读取 D1、配置快照或 KV 的凭据都能直接获得明文上游 Key；请限制 Cloudflare 账户与数据库访问，并及时清理历史配置版本。
+- 任何能读取 D1、配置快照或 KV 的凭据都能直接获得明文上游 Key；请限制 Cloudflare 账户与数据库访问。配置保存后会自动发布，`config_versions` 与历史快照会持续累积包含明文上游 Key 的版本，请定期清理旧版本并限制版本读取权限。
 - 客户端 `Authorization` / `x-api-key` 永不透传；上游认证由 Provider Adapter 重建。
 - 上游地址仅允许管理员配置，强制 HTTPS、拒绝私有/环回/元数据地址与重定向。
 - 请求体默认限制 4 MiB，SSE 单事件默认限制 1 MiB。
@@ -213,7 +212,7 @@ docs/              架构、API、Provider、Combo、部署文档
 4. Gemini 输入图片支持 base64 数据 URL；任意公网 URL 不会由网关抓取（避免 SSRF），请在客户端转为 base64。
 5. 限流作用于 API Key 与用户；Provider / Model / Combo 维度的独立限流配置未在第一版提供。
 6. TPM 使用请求前估算、请求后按真实 Usage 修正；并发租约 TTL 为 10 分钟。
-7. 配置发布传播最长约 60 秒；API Key 禁用/吊销直读 D1，立即生效。
+7. 配置写入后自动发布，跨 isolate 传播最长约 60 秒；API Key 禁用/吊销直读 D1，立即生效。
 8. 预算使用 Durable Object 缓存并从 D1 播种；极端故障切换时可能出现少量超额。
 9. `count_tokens` 为本地估算，且音频/视频/Embeddings/图像生成 API 未实现。
 10. 推理端 CORS 默认关闭；仅当系统设置 `cors.allowed_origins` 明确包含来源时才返回 CORS 头。

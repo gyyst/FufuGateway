@@ -2,24 +2,11 @@ import type { Context } from "hono";
 import type { AppEnv } from "../../app";
 import { GatewayError } from "../../core/errors";
 import { isRecord } from "../../core/json";
-import { setSetting } from "../../config/repository";
-import { parseAdminBody, recordAudit } from "../shared";
+import { RUNTIME_SETTING_KEYS, setSetting } from "../../config/repository";
+import { configMutationResponse, parseAdminBody } from "../shared";
 import { z } from "zod";
 
-const ALLOWED_KEYS = new Set([
-  "gateway.name",
-  "compat.default_policy",
-  "limits.max_body_bytes",
-  "limits.max_response_bytes",
-  "limits.max_stream_event_bytes",
-  "limits.max_combo_depth",
-  "limits.max_combo_nodes",
-  "limits.max_combo_concurrency",
-  "timeouts.request_ms",
-  "logging.retention_days",
-  "cors.allowed_origins",
-  "config.cache_ttl_ms",
-]);
+const ALLOWED_KEYS = new Set(RUNTIME_SETTING_KEYS);
 
 const settingsUpdateSchema = z.record(z.string(), z.unknown());
 
@@ -36,7 +23,10 @@ export async function getSettingsHandler(c: Context<AppEnv>): Promise<Response> 
       data[row.key] = row.value;
     }
   }
-  return c.json({ data, note: "Settings changes take effect after publishing a new configuration version." });
+  return c.json({
+    data,
+    note: "Settings are applied automatically when saved. Changes may take up to 60 seconds to reach all instances.",
+  });
 }
 
 function validateValue(key: string, value: unknown): void {
@@ -92,9 +82,15 @@ export async function updateSettingsHandler(c: Context<AppEnv>): Promise<Respons
   for (const [key, value] of entries) {
     await setSetting(c.env.DB, key, value);
   }
-  await recordAudit(c, "settings.update", "settings", null, { keys: entries.map(([key]) => key) });
-  return c.json({
-    data: body,
-    note: "Settings saved. Publish a configuration version to apply them to inference traffic.",
-  });
+  return configMutationResponse(
+    c,
+    "settings.update",
+    "settings",
+    null,
+    { keys: entries.map(([key]) => key) },
+    {
+      data: body,
+      note: "Settings saved and applied automatically. Changes may take up to 60 seconds to reach all instances.",
+    },
+  );
 }
