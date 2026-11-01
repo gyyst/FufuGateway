@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/security-guidelines.md", "reason": "上游 apiKey 明文会随自动发布进入 config_versions 与 KV；实现与文档必须遵守凭据脱敏和历史版本风险约定"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "改动横跨配置仓储、发布服务、管理 API、管理台 UI 与测试，需按跨层数据流检查契约"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "需复用现有 publish/rollback/仓储写语句与响应辅助函数，避免每个 handler 重复自动发布与审计逻辑"}
+{"file": ".trellis/tasks/11-01-auto-publish-config/research/config-publish-flow.md", "reason": "记录配置发布链路、全部写路径、校验规则、测试锚点与已知限制"}
+{"file": ".trellis/tasks/11-01-auto-publish-config/design.md", "reason": "本任务的自动发布触发点、失败语义、回滚恢复 D1、响应契约与风险控制设计"}
+{"file": ".trellis/tasks/11-01-auto-publish-config/implement.md", "reason": "按顺序执行的实现清单、验证命令、风险文件与完成标准"}
