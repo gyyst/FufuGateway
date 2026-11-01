@@ -11,7 +11,6 @@ export const NAV_GROUPS = [
     title: "接入",
     items: [
       ["providers", "Provider"],
-      ["aliases", "别名"],
       ["combos", "Combo"],
     ],
   },

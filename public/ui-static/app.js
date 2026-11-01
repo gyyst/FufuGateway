@@ -17,7 +17,6 @@ import { initThemeToggle } from "./js/theme.js";
     providers: [],
     users: [],
     models: [],
-    aliases: [],
     combos: [],
     routeLookupsLoaded: false,
     page: "overview",
@@ -140,13 +139,11 @@ import { initThemeToggle } from "./js/theme.js";
 
   async function ensureRouteLookups(force) {
     if (!force && state.routeLookupsLoaded) return;
-    const [models, aliases, combos] = await Promise.all([
+    const [models, combos] = await Promise.all([
       api("/admin/models"),
-      api("/admin/aliases"),
       api("/admin/combos"),
     ]);
     state.models = models.data || [];
-    state.aliases = aliases.data || [];
     state.combos = combos.data || [];
     state.routeLookupsLoaded = true;
   }
@@ -194,14 +191,6 @@ import { initThemeToggle } from "./js/theme.js";
       group: "模型",
     }));
     const seen = new Set(entries.map((entry) => entry.value));
-    for (const alias of state.aliases) {
-      if (alias.enabled === false) continue;
-      if (except && (except.aliasId === alias.id || except.aliasName === alias.name)) continue;
-      const value = JSON.stringify({ alias: alias.name });
-      if (seen.has(value)) continue;
-      seen.add(value);
-      entries.push({ value, label: "别名 · " + alias.name, group: "别名" });
-    }
     for (const combo of state.combos) {
       if (combo.enabled === false) continue;
       if (except && (except.comboId === combo.id || except.comboName === combo.name)) continue;
@@ -237,11 +226,6 @@ import { initThemeToggle } from "./js/theme.js";
   function routeNameEntries() {
     const entries = nativeModelEntries();
     const seen = new Set(entries.map((entry) => entry.value));
-    for (const alias of state.aliases) {
-      if (seen.has(alias.name)) continue;
-      seen.add(alias.name);
-      entries.push({ value: alias.name, label: "别名 · " + alias.name });
-    }
     for (const combo of state.combos) {
       if (seen.has(combo.name)) continue;
       seen.add(combo.name);
@@ -257,11 +241,6 @@ import { initThemeToggle } from "./js/theme.js";
       group: "模型",
     }));
     const seen = new Set(entries.map((entry) => entry.value));
-    for (const alias of state.aliases) {
-      if (alias.enabled === false || seen.has(alias.name)) continue;
-      seen.add(alias.name);
-      entries.push({ value: alias.name, label: "别名 · " + alias.name, group: "别名" });
-    }
     for (const combo of state.combos) {
       if (combo.enabled === false || seen.has(combo.name)) continue;
       seen.add(combo.name);
@@ -363,7 +342,7 @@ import { initThemeToggle } from "./js/theme.js";
   function routeTargetLabel(target) {
     if (!isPlainObject(target)) return String(target || "");
     if (target.model) return "模型 · " + target.model;
-    if (target.alias) return "别名 · " + target.alias;
+    if (target.alias) return "Combo · " + target.alias;
     if (target.combo) return "Combo · " + target.combo;
     if (target.wildcard) return "Combo · " + target.wildcard;
     return routeTargetJson(target);
@@ -978,9 +957,6 @@ import { initThemeToggle } from "./js/theme.js";
         providerName(model.providerId),
       );
     });
-    state.aliases.forEach((alias) => {
-      push("别名", alias.name, JSON.stringify(alias.target || ""), alias.id, "aliases", alias.name);
-    });
     state.combos.forEach((combo) => {
       push("Combo", combo.name, combo.strategy, combo.id, "combos", combo.name);
     });
@@ -1043,6 +1019,10 @@ import { initThemeToggle } from "./js/theme.js";
     const rawPage = location.hash.replace(/^#\/?/, "");
     if (rawPage === "models" || rawPage === "wildcards") {
       location.hash = "#/providers";
+      return;
+    }
+    if (rawPage === "aliases") {
+      location.hash = "#/combos";
       return;
     }
     showApp();
@@ -1526,9 +1506,7 @@ import { initThemeToggle } from "./js/theme.js";
     }
     const fields = entity.fields.map((field) => {
       let excludeRoute;
-      if (entity.endpoint === "/admin/aliases" && field.name === "target" && row) {
-        excludeRoute = { aliasId: row.id, aliasName: row.name };
-      } else if (entity.endpoint === "/admin/combos" && field.name === "nodes" && row) {
+      if (entity.endpoint === "/admin/combos" && field.name === "nodes" && row) {
         excludeRoute = { comboId: row.id, comboName: row.name };
       }
       return excludeRoute === undefined ? field : { ...field, excludeRoute };
@@ -2126,21 +2104,6 @@ import { initThemeToggle } from "./js/theme.js";
     { name: "enabled", label: "启用", type: "checkbox", default: true },
   ];
 
-  const aliasFields = [
-    { name: "name", label: "别名", required: true },
-    {
-      name: "target",
-      label: "目标",
-      type: "routeTarget",
-      required: true,
-      span: 2,
-      help: "从下拉选择模型、别名或 Combo；模型使用 provider/model 形式。名称含 * 或 ? 的 Combo 按通配符匹配。",
-    },
-    { name: "enabled", label: "启用", type: "checkbox", default: true },
-    { name: "priority", label: "优先级", type: "number", default: 100 },
-    { name: "description", label: "说明", span: 2 },
-  ];
-
   const pricingFields = [
     { name: "providerId", label: "Provider", type: "select", optionsFrom: "providers", required: true },
     {
@@ -2354,23 +2317,6 @@ import { initThemeToggle } from "./js/theme.js";
             }
           },
         },
-      ],
-    },
-    aliases: {
-      title: "别名",
-      endpoint: "/admin/aliases",
-      fields: aliasFields,
-      empty: {
-        title: "还没有别名",
-        text: "为常用模型创建稳定别名，客户端可以忽略上游模型改名。",
-        action: "new",
-        actionLabel: "新建别名",
-      },
-      columns: [
-        { label: "别名", key: "name", mono: true },
-        { label: "目标", render: (row) => '<span class="mono">' + esc(JSON.stringify(row.target)) + "</span>" },
-        enabledColumn(),
-        { label: "优先级", key: "priority" },
       ],
     },
     combos: {
@@ -4288,7 +4234,6 @@ import { initThemeToggle } from "./js/theme.js";
     setup: setupPage,
     overview: overviewPage,
     providers: crudPage(entities.providers),
-    aliases: crudPage(entities.aliases),
     combos: crudPage(entities.combos),
     keys: keysPage,
     users: crudPage(entities.users),
