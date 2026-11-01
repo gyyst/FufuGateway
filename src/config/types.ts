@@ -23,12 +23,6 @@ export interface RetryPolicyRecord {
   respectRetryAfter: boolean;
 }
 
-export interface EncryptedCredential {
-  ciphertext: string;
-  iv: string;
-  tag: string;
-}
-
 export interface ProviderRecord {
   id: string;
   name: string;
@@ -56,7 +50,8 @@ export interface ProviderAccountRecord {
   id: string;
   providerId: string;
   name: string;
-  encryptedKey?: EncryptedCredential;
+  /** 上游 API Key 明文，落库时存入 provider_accounts.api_key_plain。 */
+  apiKey?: string;
   secretRef?: string;
   weight: number;
   priority: number;

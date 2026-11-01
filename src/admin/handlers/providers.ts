@@ -18,7 +18,7 @@ import {
 import { selectAnyProviderAccount } from "../../execution/accounts";
 import { fetchProviderModels } from "../../providers/engine";
 import { syncProviderModels } from "../../models/sync";
-import { isValidSecretRef, encryptSecret } from "../../security/crypto";
+import { isValidSecretRef } from "../../security/secrets";
 import {
   accountCreateSchema,
   accountUpdateSchema,
@@ -165,21 +165,17 @@ export async function createAccountHandler(c: Context<AppEnv>): Promise<Response
   const provider = await requireProvider(c, requireProviderId(c));
   const input = await parseAdminBody(c, accountCreateSchema);
 
-  let encryptedKey;
-  if (input.apiKey !== undefined) {
-    encryptedKey = await encryptSecret(c.env, input.apiKey);
-  } else if (input.secretRef !== undefined) {
-    if (!isValidSecretRef(input.secretRef)) {
-      throw new GatewayError({ code: "INVALID_REQUEST", message: "secretRef must be an uppercase Worker Secret name" });
-    }
-  } else {
+  if (input.apiKey === undefined && input.secretRef === undefined) {
     throw new GatewayError({ code: "INVALID_REQUEST", message: "Provide exactly one of apiKey or secretRef" });
+  }
+  if (input.secretRef !== undefined && !isValidSecretRef(input.secretRef)) {
+    throw new GatewayError({ code: "INVALID_REQUEST", message: "secretRef must be an uppercase Worker Secret name" });
   }
 
   const account = await createAccount(c.env.DB, {
     providerId: provider.id,
     name: input.name,
-    ...(encryptedKey === undefined ? {} : { encryptedKey }),
+    ...(input.apiKey === undefined ? {} : { apiKey: input.apiKey }),
     ...(input.secretRef === undefined ? {} : { secretRef: input.secretRef }),
     weight: input.weight,
     priority: input.priority,
@@ -187,7 +183,7 @@ export async function createAccountHandler(c: Context<AppEnv>): Promise<Response
   });
   await recordAudit(c, "account.create", "provider_account", account.id, {
     providerId: provider.id,
-    credential: encryptedKey === undefined ? "secret_ref" : "encrypted",
+    credential: input.apiKey === undefined ? "secret_ref" : "api_key",
   });
   return c.json({ data: sanitizeAccount(account) }, 201);
 }
@@ -209,7 +205,7 @@ export async function updateAccountHandler(c: Context<AppEnv>): Promise<Response
     updatedAt: Date.now(),
   };
   if (input.apiKey !== undefined) {
-    updated.encryptedKey = await encryptSecret(c.env, input.apiKey);
+    updated.apiKey = input.apiKey;
     delete updated.secretRef;
   }
   if (input.secretRef !== undefined) {
@@ -217,7 +213,7 @@ export async function updateAccountHandler(c: Context<AppEnv>): Promise<Response
       throw new GatewayError({ code: "INVALID_REQUEST", message: "secretRef must be an uppercase Worker Secret name" });
     }
     updated.secretRef = input.secretRef;
-    delete updated.encryptedKey;
+    delete updated.apiKey;
   }
   await replaceAccount(c.env.DB, updated);
   await recordAudit(c, "account.update", "provider_account", account.id, { providerId: provider.id });

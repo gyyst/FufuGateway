@@ -69,14 +69,19 @@ export const accountCreateSchema = z
     path: ["apiKey"],
   });
 
-export const accountUpdateSchema = z.object({
-  name: z.string().min(1).max(64).optional(),
-  apiKey: z.string().min(1).max(4096).optional(),
-  secretRef: z.string().min(1).max(64).optional(),
-  weight: z.number().int().min(1).max(10_000).optional(),
-  priority: z.number().int().min(0).max(1_000_000).optional(),
-  enabled: z.boolean().optional(),
-});
+export const accountUpdateSchema = z
+  .object({
+    name: z.string().min(1).max(64).optional(),
+    apiKey: z.string().min(1).max(4096).optional(),
+    secretRef: z.string().min(1).max(64).optional(),
+    weight: z.number().int().min(1).max(10_000).optional(),
+    priority: z.number().int().min(0).max(1_000_000).optional(),
+    enabled: z.boolean().optional(),
+  })
+  .refine((value) => value.apiKey === undefined || value.secretRef === undefined, {
+    message: "Provide at most one of apiKey or secretRef",
+    path: ["apiKey"],
+  });
 
 const capabilitiesSchema = z.object({
   inputModalities: z.array(modalitySchema).min(1).optional(),

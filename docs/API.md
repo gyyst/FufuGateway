@@ -104,10 +104,12 @@ Gemini 模型目录与单个模型查询。
 | DELETE | `/admin/providers/:id` | 删除（级联账户/模型/价格） |
 | POST | `/admin/providers/:id/test` | 拉取上游模型列表验证连通性；无账户返回 `PROVIDER_NO_ACCOUNT` |
 | POST | `/admin/providers/:id/sync-models` | 同步上游模型（默认禁用，需人工确认能力） |
-| GET | `/admin/providers/:id/accounts` | 账户列表 |
+| GET | `/admin/providers/:id/accounts` | 账户列表（响应不含明文 `apiKey`） |
 | POST | `/admin/providers/:id/accounts` | 添加账户（`apiKey` 或 `secretRef` 二选一） |
-| PUT | `/admin/providers/:id/accounts/:accountId` | 更新账户/密钥 |
+| PUT | `/admin/providers/:id/accounts/:accountId` | 更新账户/密钥（`apiKey` 与 `secretRef` 互斥，更新其一会清除另一种） |
 | DELETE | `/admin/providers/:id/accounts/:accountId` | 删除账户 |
+
+通过 `apiKey` 添加的账户会以明文写入 `provider_accounts.api_key_plain`，并随配置快照进入 `config_versions.payload` 与 KV。账户对象始终脱敏，只返回 `hasKey` 与 `credentialType`（`api_key` / `secret_ref` / `none`）；生产环境推荐使用 `secretRef` 引用 Worker Secret。
 
 创建 Provider 示例：
 
@@ -274,8 +276,7 @@ Combo 字段：`name`（含 `*`/`?` 时为通配符模式）、`strategy`、`nod
   "data": {
     "readyForInference": false,
     "secrets": {
-      "adminToken": true,
-      "encryptionKey": true
+      "adminToken": true
     },
     "counts": {
       "providers": 1,

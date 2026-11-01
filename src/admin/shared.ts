@@ -162,11 +162,12 @@ export function sanitizeProvider(provider: ProviderRecord): Omit<ProviderRecord,
 }
 
 export function sanitizeAccount(account: ProviderAccountRecord): Record<string, unknown> {
-  const { encryptedKey, ...rest } = account;
+  const { apiKey, ...rest } = account;
   return {
     ...rest,
-    hasKey: encryptedKey !== undefined || account.secretRef !== undefined,
-    credentialType: encryptedKey !== undefined ? "encrypted" : account.secretRef !== undefined ? "secret_ref" : "none",
+    hasKey: apiKey !== undefined || account.secretRef !== undefined,
+    credentialType:
+      apiKey !== undefined ? "api_key" : account.secretRef !== undefined ? "secret_ref" : "none",
   };
 }
 

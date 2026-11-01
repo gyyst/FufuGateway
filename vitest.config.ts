@@ -14,7 +14,6 @@ export default defineConfig({
           LOG_LEVEL: "warn",
           USAGE_MODE: "direct",
           ADMIN_TOKEN: "test-admin-token",
-          ENCRYPTION_KEY: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
         },
       },
     }),

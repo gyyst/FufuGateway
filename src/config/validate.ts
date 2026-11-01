@@ -166,14 +166,8 @@ export function validateSnapshot(
     if (!providerIds.has(account.providerId)) {
       issue(issues, "error", "CONFIG_INVALID", `Account "${account.name}" references an unknown provider`, "account", account.id);
     }
-    if (account.encryptedKey === undefined && account.secretRef === undefined) {
+    if (account.apiKey === undefined && account.secretRef === undefined) {
       issue(issues, "error", "CONFIG_INVALID", `Account "${account.name}" has no credential configured`, "account", account.id);
-    }
-    if (account.encryptedKey !== undefined) {
-      const key = account.encryptedKey;
-      if (!key.ciphertext || !key.iv || !key.tag) {
-        issue(issues, "error", "CONFIG_INVALID", `Account "${account.name}" has an incomplete credential`, "account", account.id);
-      }
     }
     if (account.secretRef !== undefined && !/^[A-Z][A-Z0-9_]{0,63}$/.test(account.secretRef)) {
       issue(issues, "error", "CONFIG_INVALID", `Account "${account.name}" secretRef is invalid`, "account", account.id);

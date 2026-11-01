@@ -71,6 +71,12 @@ import { initThemeToggle } from "./js/theme.js";
     return '<span class="badge ' + (ok ? "ok" : "bad") + '">' + esc(text || (ok ? "启用" : "停用")) + "</span>";
   }
 
+  function credentialLabel(type) {
+    if (type === "api_key") return "API Key（明文存储）";
+    if (type === "secret_ref") return "Worker Secret";
+    return "未配置";
+  }
+
   function setStatus(ok, text) {
     const dot = $("#status-dot");
     const label = $("#status-text");
@@ -2469,7 +2475,7 @@ import { initThemeToggle } from "./js/theme.js";
               "<tr><td class=\"mono\">" +
               esc(account.name) +
               "</td><td>" +
-              esc(account.credentialType) +
+              esc(credentialLabel(account.credentialType)) +
               "</td><td>" +
               esc(account.weight) +
               "</td><td>" +

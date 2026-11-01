@@ -41,25 +41,25 @@ npx wrangler r2 bucket create fufu-gateway-archive
 
 ```bash
 npx wrangler secret put ADMIN_TOKEN
-npx wrangler secret put ENCRYPTION_KEY
-```
-
-生成 `ENCRYPTION_KEY`：
-
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 ```
 
 | Secret | 用途 |
 |--------|------|
 | `ADMIN_TOKEN` | 管理 API 与 `/ui` 登录 |
-| `ENCRYPTION_KEY` | 上游 API Key AES-256-GCM 加密 |
 
 生产环境不要复用示例值，也不要提交 `.dev.vars`。
 
-使用 Workers Builds 时，也可以在 Cloudflare Dashboard 的 Worker → Settings → Variables and Secrets 中配置同名 Secret。部署本身不要求这些 Secret，但缺少 `ADMIN_TOKEN` 会导致管理端返回 503，缺少 `ENCRYPTION_KEY` 会导致上游账户加密失败。
+使用 Workers Builds 时，也可以在 Cloudflare Dashboard 的 Worker → Settings → Variables and Secrets 中配置同名 Secret。部署本身不要求这些 Secret，但缺少 `ADMIN_TOKEN` 会导致管理端返回 503。
 
 本版本已移除下游 API Key 的哈希盐 Secret。升级后旧下游 Key 的哈希无法重算，所有已有下游 Key 会失效，需要在管理台重新签发。
+
+本版本同时移除了 `ENCRYPTION_KEY`。通过管理 API 提交的 `apiKey` 会以明文写入 D1（`provider_accounts.api_key_plain`），并随配置快照进入 `config_versions.payload` 与 KV。生产环境推荐为上游账户使用 `secretRef` 引用 Worker Secret：
+
+```bash
+npx wrangler secret put UPSTREAM_KEY
+```
+
+然后在账户中填写 `secretRef: "UPSTREAM_KEY"`。如果已经从 Dashboard 删除 `ENCRYPTION_KEY`，旧版代码保存的 `api_key_enc/iv/tag` 密文已不可解密，升级后需要重新录入上游 Key 或改用 `secretRef`。
 
 ## 4. 执行 D1 迁移
 
@@ -204,6 +204,12 @@ npm run deploy
 
 先迁移后部署，确保新代码需要的新列已存在。回滚 Worker 代码时注意迁移通常向前兼容；需要回滚数据库结构时请使用 D1 Time Travel 或备份。
 
+本版本的 `0007_plaintext_provider_api_keys.sql` 只新增 `provider_accounts.api_key_plain`，不修改或删除历史列。升级后：
+
+1. 执行远程迁移。
+2. 重新录入上游 Key（选择 `apiKey` 明文或 `secretRef`），并重新发布配置。
+3. 确认推理与网关自测正常后，再删除不再需要的 `ENCRYPTION_KEY` Secret。
+
 ## 10. 故障排查
 
 | 现象 | 排查 |
@@ -229,6 +235,7 @@ npm run deploy
 ## 11. 生产建议
 
 - 使用 `secretRef` 引用上游密钥，而不是通过管理 API 上传明文。
+- 上游 `apiKey` 以明文进入 `provider_accounts`、`config_versions.payload` 与 KV 快照；限制 D1 / KV 访问，不要导出历史配置版本，并定期清理不再需要的版本。
 - 为管理令牌使用独立的高熵值，并限制管理入口访问范围。
 - 为 API Key 设置模型白名单、RPM/TPM、并发与预算。
 - 为 Provider 配置 `extraConfig.breaker`，避免故障上游持续消耗请求。

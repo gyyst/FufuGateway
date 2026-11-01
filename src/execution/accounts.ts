@@ -1,11 +1,11 @@
 import { GatewayError } from "../core/errors";
 import type { RuntimeConfig, ProviderAccountRecord } from "../config/types";
 import type { GatewayEnv } from "../env";
-import { decryptSecret, readSecretRef } from "../security/crypto";
+import { readSecretRef } from "../security/secrets";
 import { listAccounts } from "../config/repository";
 import { BreakerClient, accountBreakerKey, breakerOptionsFor } from "./breaker";
 
-/** 解析上游账户密钥；密钥只在单次执行的内存中存在。 */
+/** 解析上游账户密钥：secretRef 优先，否则使用账户内保存的明文 apiKey。 */
 export async function resolveAccountApiKey(
   env: GatewayEnv,
   account: ProviderAccountRecord,
@@ -14,18 +14,7 @@ export async function resolveAccountApiKey(
     const value = readSecretRef(env, account.secretRef);
     if (value !== undefined) return value;
   }
-  if (account.encryptedKey !== undefined) {
-    try {
-      return await decryptSecret(env, account.encryptedKey);
-    } catch (error) {
-      throw new GatewayError({
-        code: "PROVIDER_UNAVAILABLE",
-        message: "Provider credential is unavailable",
-        expose: false,
-        cause: error,
-      });
-    }
-  }
+  if (account.apiKey !== undefined) return account.apiKey;
   throw new GatewayError({
     code: "PROVIDER_UNAVAILABLE",
     message: "Provider account has no credential configured",

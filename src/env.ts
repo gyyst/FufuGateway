@@ -18,8 +18,6 @@ export interface GatewayEnv {
 
   /** 管理员令牌（Secret）。 */
   ADMIN_TOKEN?: string;
-  /** 上游密钥 AES-256-GCM 主密钥，base64 编码 32 字节（Secret）。 */
-  ENCRYPTION_KEY?: string;
 
   /** 仅限本地开发：允许 http/私有地址作为上游。生产环境必须保持未设置。 */
   ALLOW_PRIVATE_UPSTREAMS?: string;

@@ -7,7 +7,6 @@ import type { ProtocolId } from "../ir/common";
 import type { ComboNodeSpec, ComboRecord, StickyConfig, StrategyId } from "../combo/types";
 import type {
   AccountHealth,
-  EncryptedCredential,
   ModelPricing,
   ModelRecord,
   PricingRecord,
@@ -100,9 +99,7 @@ interface AccountRow {
   id: string;
   provider_id: string;
   name: string;
-  api_key_enc: string | null;
-  api_key_iv: string | null;
-  api_key_tag: string | null;
+  api_key_plain: string | null;
   secret_ref: string | null;
   weight: number;
   priority: number;
@@ -207,15 +204,11 @@ export function mapProvider(row: ProviderRow): ProviderRecord {
 }
 
 export function mapAccount(row: AccountRow): ProviderAccountRecord {
-  const encryptedKey =
-    row.api_key_enc !== null && row.api_key_iv !== null && row.api_key_tag !== null
-      ? { ciphertext: row.api_key_enc, iv: row.api_key_iv, tag: row.api_key_tag }
-      : undefined;
   return {
     id: row.id,
     providerId: row.provider_id,
     name: row.name,
-    ...(encryptedKey === undefined ? {} : { encryptedKey }),
+    ...(row.api_key_plain === null ? {} : { apiKey: row.api_key_plain }),
     ...(row.secret_ref === null ? {} : { secretRef: row.secret_ref }),
     weight: row.weight,
     priority: row.priority,
@@ -547,7 +540,7 @@ export async function deleteProvider(db: D1Database, id: string): Promise<void> 
 export interface CreateAccountInput {
   providerId: string;
   name: string;
-  encryptedKey?: EncryptedCredential;
+  apiKey?: string;
   secretRef?: string;
   weight?: number;
   priority?: number;
@@ -560,7 +553,7 @@ export async function createAccount(db: D1Database, input: CreateAccountInput): 
     id: newId("acc"),
     providerId: input.providerId,
     name: input.name,
-    ...(input.encryptedKey === undefined ? {} : { encryptedKey: input.encryptedKey }),
+    ...(input.apiKey === undefined ? {} : { apiKey: input.apiKey }),
     ...(input.secretRef === undefined ? {} : { secretRef: input.secretRef }),
     weight: input.weight ?? 1,
     priority: input.priority ?? 100,
@@ -578,17 +571,16 @@ export async function replaceAccount(db: D1Database, record: ProviderAccountReco
   await db
     .prepare(
       `INSERT OR REPLACE INTO provider_accounts
-        (id, provider_id, name, api_key_enc, api_key_iv, api_key_tag, secret_ref, weight, priority,
-         enabled, health_status, cooldown_until, consecutive_failures, last_checked_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, provider_id, name, api_key_plain, secret_ref, weight, priority,
+         enabled, health_status, cooldown_until, consecutive_failures, last_checked_at, created_at, updated_at,
+         api_key_enc, api_key_iv, api_key_tag)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`,
     )
     .bind(
       record.id,
       record.providerId,
       record.name,
-      record.encryptedKey?.ciphertext ?? null,
-      record.encryptedKey?.iv ?? null,
-      record.encryptedKey?.tag ?? null,
+      record.apiKey ?? null,
       record.secretRef ?? null,
       record.weight,
       record.priority,

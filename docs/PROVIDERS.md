@@ -127,10 +127,11 @@ CUSTOM 可通过 `extraConfig` 覆盖：
 }
 ```
 
-- 明文 `apiKey` 会使用 `ENCRYPTION_KEY` 进行 AES-256-GCM 加密后写入 D1。
+- 通过管理 API 提交的 `apiKey` 会以明文写入 D1 的 `provider_accounts.api_key_plain`，并随配置快照进入 `config_versions.payload` 与 KV；请限制 D1 / KV 的访问权限。
 - 也可以只提供 `secretRef`，引用 Worker Secret（推荐生产使用）。
 - 账户选择：启用、未冷却、未熔断的账户按权重轮询；上游 401/403 时自动轮换账户。
-- 账户密钥不会出现在任何管理响应中，只返回 `hasKey` 与 `credentialType`。
+- 账户密钥不会出现在任何管理响应中，只返回 `hasKey` 与 `credentialType`（`api_key` / `secret_ref` / `none`）。
+- 更新账户时 `apiKey` 与 `secretRef` 二选一，更新其一会清除另一种凭据。
 
 ## 5. 重试
 

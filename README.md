@@ -59,16 +59,11 @@ npm run dev
 
 ```dotenv
 ADMIN_TOKEN=change-me-admin-token
-ENCRYPTION_KEY=<base64 编码的 32 字节随机值>
 ```
 
 升级到本版本后，下游 API Key 的哈希算法改为带固定域前缀的无盐 SHA-256，旧 Key 的哈希无法重算，所有已有下游 Key 会失效，需要在管理台重新签发。
 
-生成加密主密钥：
-
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
-```
+上游账户通过管理台提交的 `apiKey` 现在以明文存入 D1（`provider_accounts.api_key_plain`），并会进入配置快照与 KV。生产环境建议使用 `secretRef` 引用 Worker Secret，避免明文落库；升级后历史 `api_key_enc/iv/tag` 密文不再可用，需要重新录入上游 Key 或改用 `secretRef`。
 
 ### 首次配置
 
@@ -203,7 +198,8 @@ docs/              架构、API、Provider、Combo、部署文档
 ## 安全要点
 
 - 下游 API Key 只存 `SHA-256("fufu_api_key:" + key)` 与前缀，明文仅创建/轮换时返回一次。
-- 上游 API Key 使用 AES-256-GCM 加密，或通过 `secretRef` 引用 Worker Secret。
+- 上游 API Key 通过 `apiKey` 提交时以明文存入 D1（并进入配置快照与 KV）；生产环境推荐通过 `secretRef` 引用 Worker Secret。
+- 任何能读取 D1、配置快照或 KV 的凭据都能直接获得明文上游 Key；请限制 Cloudflare 账户与数据库访问，并及时清理历史配置版本。
 - 客户端 `Authorization` / `x-api-key` 永不透传；上游认证由 Provider Adapter 重建。
 - 上游地址仅允许管理员配置，强制 HTTPS、拒绝私有/环回/元数据地址与重定向。
 - 请求体默认限制 4 MiB，SSE 单事件默认限制 1 MiB。
