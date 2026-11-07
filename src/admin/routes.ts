@@ -9,6 +9,7 @@ import {
   getProviderHandler,
   listAccountsHandler,
   listProviderHandler,
+  refreshModelMetadataHandler,
   syncModelsHandler,
   testProviderHandler,
   updateAccountHandler,
@@ -80,6 +81,7 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
   app.delete("/admin/providers/:id", deleteProviderHandler);
   app.post("/admin/providers/:id/test", testProviderHandler);
   app.post("/admin/providers/:id/sync-models", syncModelsHandler);
+  app.post("/admin/providers/:id/refresh-model-metadata", refreshModelMetadataHandler);
   app.get("/admin/providers/:id/accounts", listAccountsHandler);
   app.post("/admin/providers/:id/accounts", createAccountHandler);
   app.put("/admin/providers/:id/accounts/:accountId", updateAccountHandler);

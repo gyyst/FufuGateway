@@ -139,7 +139,7 @@ npm run deploy
 2. 打开「快速开始」，按清单完成 Secrets、Provider、账户、模型和 API Key。
 3. 「Provider」→「从预设添加」，选择火山方舟、华为云 MaaS、OpenAI、Anthropic、Gemini、DeepSeek、Kimi、GLM、Qwen、OpenRouter 等预设，或填写自定义兼容端点。
 4. 添加账户。生产环境优先使用 Worker Secret 的 `secretRef`，避免通过页面保存明文密钥。
-5. 同步上游模型或手动添加模型。同步结果默认禁用，必须在模型编辑中确认能力后启用。
+5. 同步上游模型或手动添加模型。同步会自动识别上下文、图像等能力：识别到的文本模型自动启用，未识别的模型保持禁用，可人工确认后启用。
 6. 创建用户与 API Key。
 7. 配置 Combo（含通配符与单目标别名，可选）。
 8. 「路由诊断」输入模型并解析路由；确认账户存在后运行网关自测。自测会产生真实上游费用，输出最多 32 Token。
@@ -174,7 +174,7 @@ npm run deploy
 - 有 R2：先批量归档为 JSONL，再删除已归档日志（每批 1000 条）。
 - 无 R2：直接删除过期日志。
 - 同时清理超过 365 天的日汇总。
-- 对 `extraConfig.autoSyncModels=true` 的 Provider 执行模型同步（新模型默认禁用）。
+- 对 `extraConfig.autoSyncModels=true` 的 Provider 执行模型同步（自动识别元数据；识别到的文本模型自动启用，可通过 `extraConfig.syncAutoEnable=false` 关闭）。
 
 ### 队列
 
@@ -184,7 +184,7 @@ npm run deploy
 
 ### 配置发布与回滚
 
-- 自动发布：Provider、账户、模型、价格、Combo、系统设置与模型同步写入成功后自动生成版本并切换生效，无需手动操作。
+- 自动发布：Provider、账户、模型、价格、Combo、系统设置、模型同步与元数据刷新写入成功后自动生成版本并切换生效，无需手动操作。
 - 校验：`POST /admin/config/validate`；写入响应也会附带 `config` 结果（`applied` / `unchanged` / `issues`）。
 - 非法配置：写入保留但不生效，旧版本继续服务；修复后下一次合法写入或每日维护自动收敛。
 - 故障恢复：`POST /admin/config/publish` 保留为兼容/重试入口，仅在写入成功但 KV 发布失败等异常场景使用，不再是日常步骤。

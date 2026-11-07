@@ -93,6 +93,8 @@ async function autoSyncModels(env: GatewayEnv): Promise<void> {
           total: result.total,
           created: result.created,
           skipped: result.skipped,
+          autoEnabled: result.autoEnabled,
+          catalog: result.metadata.catalog,
         }),
       );
     } catch (error) {

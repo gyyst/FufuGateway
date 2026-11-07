@@ -71,7 +71,7 @@ ADMIN_TOKEN=change-me-admin-token
 2. 进入「快速开始」，按清单完成 Secrets、Provider、账户、模型和 API Key。
 3. 在「Provider」点击「从预设添加」，选择火山方舟、华为云 MaaS、OpenAI、Anthropic、Gemini、DeepSeek、Kimi、GLM、Qwen、OpenRouter 等预设，或填写自定义兼容端点。
 4. 添加账户。生产环境建议使用 Worker Secret 的 `secretRef`，不要通过页面保存明文密钥。
-5. 同步上游模型或手动添加模型。同步结果默认禁用，必须编辑并确认能力后再启用。
+5. 同步上游模型或手动添加模型。同步时会自动识别上下文长度、图像/音频/视频输入等能力：识别到的文本模型自动启用，未识别的模型保持禁用，可人工确认后启用。
 6. 在「用户」创建用户，在「API Key」创建下游 Key（明文只显示一次）。
 7. 在「路由诊断」解析模型并运行网关自测；自测会产生真实上游费用，输出限制为 32 Token。
 8. 在「客户端接入」复制 Base URL、环境变量或 SDK 示例。

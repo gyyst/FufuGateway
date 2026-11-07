@@ -92,6 +92,8 @@ export async function createModelHandler(c: Context<AppEnv>): Promise<Response> 
     reasoningPrice: input.reasoningPrice,
     enabled: input.enabled,
     source: "manual",
+    metadataSource: "manual",
+    metadataUpdatedAt: Date.now(),
   });
   return configMutationResponse(
     c,
@@ -129,6 +131,52 @@ function mergeCapabilities(model: ModelRecord, input: Record<string, unknown>): 
   };
 }
 
+const METADATA_CAPABILITY_KEYS = [
+  "inputModalities",
+  "outputModalities",
+  "contextWindow",
+  "maxOutputTokens",
+  "supportsStream",
+  "supportsTools",
+  "supportsParallelTools",
+  "supportsJsonSchema",
+  "supportsReasoning",
+  "supportsVision",
+  "supportsAudio",
+  "supportsVideo",
+  "supportsPromptCache",
+] as const;
+
+function sameCapabilityValue(left: unknown, right: unknown): boolean {
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((value, index) => value === right[index]);
+  }
+  return left === right;
+}
+
+function editsCapabilities(model: ModelRecord, input: Record<string, unknown>): boolean {
+  const current: Record<string, unknown> = {
+    inputModalities: model.capabilities.inputModalities,
+    outputModalities: model.capabilities.outputModalities,
+    contextWindow: model.capabilities.contextWindow,
+    maxOutputTokens: model.capabilities.maxOutputTokens,
+    supportsStream: model.capabilities.supportsStream,
+    supportsTools: model.capabilities.supportsTools,
+    supportsParallelTools: model.capabilities.supportsParallelTools,
+    supportsJsonSchema: model.capabilities.supportsJsonSchema,
+    supportsReasoning: model.capabilities.supportsReasoning,
+    supportsVision: model.capabilities.supportsVision,
+    supportsAudio: model.capabilities.supportsAudio,
+    supportsVideo: model.capabilities.supportsVideo,
+    supportsPromptCache: model.capabilities.supportsPromptCache,
+  };
+  return METADATA_CAPABILITY_KEYS.some((key) => {
+    if (!Object.hasOwn(input, key)) return false;
+    const incoming = input[key];
+    return incoming !== undefined && !sameCapabilityValue(incoming, current[key]);
+  });
+}
+
 export async function updateModelHandler(c: Context<AppEnv>): Promise<Response> {
   const model = await getModel(c.env.DB, requireParam(c, "id"));
   if (model === undefined) throw new GatewayError({ code: "NOT_FOUND", message: "Model not found" });
@@ -141,6 +189,7 @@ export async function updateModelHandler(c: Context<AppEnv>): Promise<Response> 
   }
 
   const capabilities = mergeCapabilities(model, input as unknown as Record<string, unknown>);
+  const metadataEdited = editsCapabilities(model, input as unknown as Record<string, unknown>);
   const updated: ModelRecord = {
     ...model,
     modelId,
@@ -151,6 +200,9 @@ export async function updateModelHandler(c: Context<AppEnv>): Promise<Response> 
     ...(capabilities.contextWindow === undefined ? {} : { contextWindow: capabilities.contextWindow }),
     ...(capabilities.maxOutputTokens === undefined ? {} : { maxOutputTokens: capabilities.maxOutputTokens }),
     capabilities,
+    ...(metadataEdited
+      ? { metadataSource: "manual" as const, metadataUpdatedAt: Date.now() }
+      : {}),
     pricing: {
       ...model.pricing,
       ...(input.inputPrice === undefined ? {} : { inputPrice: input.inputPrice }),
