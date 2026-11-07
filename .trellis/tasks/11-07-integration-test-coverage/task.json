@@ -21,6 +21,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "新增 7 个集成测试文件、1 个共享 harness，共 80 个用例；全量 36 文件/362 用例通过，typecheck 通过。测试暴露并修复 src/gateway/cors.ts 实际响应缺少 CORS 头的问题。",
+  "notes": "新增 7 个集成测试文件、1 个共享 harness，共 80 个用例；合并自动发布改动后全量 38 文件/371 用例通过，typecheck 通过。测试暴露并修复 src/gateway/cors.ts 实际响应缺少 CORS 头的问题。",
   "meta": {}
 }
