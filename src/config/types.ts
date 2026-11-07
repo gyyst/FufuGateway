@@ -73,6 +73,9 @@ export interface ModelPricing {
   unit: "per_million_tokens";
 }
 
+/** 模型元数据来源：手工确认、上游实时字段、models.dev 目录或无法识别。 */
+export type ModelMetadataSource = "manual" | "upstream" | "models.dev" | "unknown";
+
 export interface ModelRecord {
   id: string;
   providerId: string;
@@ -87,6 +90,9 @@ export interface ModelRecord {
   pricing: ModelPricing;
   enabled: boolean;
   source: "manual" | "sync";
+  /** 可选以兼容旧配置快照；缺省视为 unknown。 */
+  metadataSource?: ModelMetadataSource;
+  metadataUpdatedAt?: number;
   createdAt: number;
   updatedAt: number;
 }

@@ -1,6 +1,7 @@
 import { GatewayError } from "../core/errors";
-import { asNumber, asString, getArray, isRecord } from "../core/json";
-import type { ProtocolId } from "../ir/common";
+import { asBoolean, asNumber, asString, getArray, isRecord } from "../core/json";
+import type { Modality, ProtocolId } from "../ir/common";
+import type { OutputModality } from "../ir/request";
 import type { ProviderRecord } from "../config/types";
 
 export interface EndpointOptions {
@@ -13,12 +14,26 @@ export interface AuthSpec {
   query: Record<string, string>;
 }
 
+export interface RemoteModelPricing {
+  inputPrice?: number;
+  outputPrice?: number;
+  cachedInputPrice?: number;
+  reasoningPrice?: number;
+}
+
 export interface RemoteModel {
   id: string;
   displayName?: string;
   createdAt?: number;
   contextWindow?: number;
   maxOutputTokens?: number;
+  inputModalities?: Modality[];
+  outputModalities?: OutputModality[];
+  supportsTools?: boolean;
+  supportsJsonSchema?: boolean;
+  supportsReasoning?: boolean;
+  supportsVision?: boolean;
+  pricing?: RemoteModelPricing;
 }
 
 export interface ProviderTransport {
@@ -180,6 +195,189 @@ export function buildProviderAuth(provider: ProviderRecord, apiKey: string): Aut
   return { headers, query };
 }
 
+const INPUT_MODALITIES = new Set<Modality>(["text", "image", "audio", "video", "file"]);
+const OUTPUT_MODALITIES = new Set<OutputModality>(["text", "image", "audio", "embedding"]);
+
+function readPath(record: Record<string, unknown>, path: string): unknown {
+  let current: unknown = record;
+  for (const segment of path.split(".")) {
+    if (!isRecord(current)) return undefined;
+    current = current[segment];
+  }
+  return current;
+}
+
+function numberValue(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function positiveInteger(record: Record<string, unknown>, paths: readonly string[]): number | undefined {
+  for (const path of paths) {
+    const value = numberValue(readPath(record, path));
+    if (value !== undefined && Number.isInteger(value) && value > 0) return value;
+  }
+  return undefined;
+}
+
+function firstBoolean(
+  record: Record<string, unknown>,
+  paths: readonly string[],
+): boolean | undefined {
+  for (const path of paths) {
+    const value = asBoolean(readPath(record, path));
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+function stringList(value: unknown): string[] | undefined {
+  const raw =
+    typeof value === "string"
+      ? value.split(/[,+]/)
+      : Array.isArray(value)
+        ? value.filter((entry): entry is string => typeof entry === "string")
+        : undefined;
+  if (raw === undefined) return undefined;
+  const result = raw
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry !== "");
+  return result.length === 0 ? undefined : result;
+}
+
+function mapInputModalities(values: string[] | undefined): Modality[] | undefined {
+  if (values === undefined) return undefined;
+  const result: Modality[] = [];
+  for (const value of values) {
+    const normalized: Modality | undefined =
+      value === "pdf" || value === "document"
+        ? "file"
+        : INPUT_MODALITIES.has(value as Modality)
+          ? (value as Modality)
+          : undefined;
+    if (normalized !== undefined && !result.includes(normalized)) result.push(normalized);
+  }
+  return result.length === 0 ? undefined : result;
+}
+
+function mapOutputModalities(values: string[] | undefined): OutputModality[] | undefined {
+  if (values === undefined) return undefined;
+  const result: OutputModality[] = [];
+  for (const value of values) {
+    if (OUTPUT_MODALITIES.has(value as OutputModality) && !result.includes(value as OutputModality)) {
+      result.push(value as OutputModality);
+    }
+  }
+  return result.length === 0 ? undefined : result;
+}
+
+interface ParsedModelMetadata {
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  inputModalities?: Modality[];
+  outputModalities?: OutputModality[];
+  supportsTools?: boolean;
+  supportsJsonSchema?: boolean;
+  supportsReasoning?: boolean;
+  supportsVision?: boolean;
+  pricing?: RemoteModelPricing;
+}
+
+const CONTEXT_PATHS = [
+  "context_length",
+  "context_window",
+  "max_context_length",
+  "max_model_len",
+  "input_token_limit",
+  "inputTokenLimit",
+  "top_provider.context_length",
+] as const;
+
+const MAX_OUTPUT_PATHS = [
+  "max_output_tokens",
+  "max_completion_tokens",
+  "output_token_limit",
+  "outputTokenLimit",
+  "top_provider.max_completion_tokens",
+] as const;
+
+const TOOL_PATHS = ["supports_tools", "tool_call", "supportsTools"] as const;
+const JSON_SCHEMA_PATHS = ["structured_output", "supports_json_schema", "supportsJsonSchema"] as const;
+const REASONING_PATHS = ["reasoning", "supports_reasoning", "supportsReasoning"] as const;
+const VISION_PATHS = ["supports_vision", "vision", "supportsVision"] as const;
+
+/** 解析 OpenAI 兼容端点常见的模型元数据扩展；未知或非法字段直接忽略。 */
+function parseModelMetadata(entry: Record<string, unknown>): ParsedModelMetadata {
+  const architecture = isRecord(entry["architecture"]) ? entry["architecture"] : undefined;
+  const modalities = isRecord(entry["modalities"]) ? entry["modalities"] : undefined;
+  const supportedParameters = stringList(entry["supported_parameters"]) ?? [];
+  const architectureMode = asString(architecture?.["modality"]);
+  const modeParts = architectureMode?.includes("->") === true
+    ? architectureMode.split("->").map((part) => part.trim())
+    : undefined;
+
+  const inputValues =
+    stringList(architecture?.["input_modalities"]) ??
+    stringList(entry["input_modalities"]) ??
+    stringList(modalities?.["input"]) ??
+    stringList(modeParts?.[0]);
+  const outputValues =
+    stringList(architecture?.["output_modalities"]) ??
+    stringList(entry["output_modalities"]) ??
+    stringList(modalities?.["output"]) ??
+    stringList(modeParts?.[1]);
+
+  const inputModalities = mapInputModalities(inputValues);
+  const outputModalities = mapOutputModalities(outputValues);
+  const supportsTools =
+    firstBoolean(entry, TOOL_PATHS) ??
+    (supportedParameters.includes("tools") || supportedParameters.includes("tool_choice")
+      ? true
+      : undefined);
+  const supportsJsonSchema =
+    firstBoolean(entry, JSON_SCHEMA_PATHS) ??
+    (supportedParameters.includes("structured_outputs") ? true : undefined);
+  const supportsReasoning =
+    firstBoolean(entry, REASONING_PATHS) ?? (supportedParameters.includes("reasoning") ? true : undefined);
+  const supportsVision =
+    firstBoolean(entry, VISION_PATHS) ??
+    (inputModalities?.includes("image") === true ? true : undefined);
+
+  const pricingRecord = isRecord(entry["pricing"]) ? entry["pricing"] : undefined;
+  const perMillion = (value: unknown): number | undefined => {
+    const parsed = numberValue(value);
+    if (parsed === undefined || parsed < 0) return undefined;
+    return parsed * 1_000_000;
+  };
+  const inputPrice = perMillion(pricingRecord?.["prompt"]);
+  const outputPrice = perMillion(pricingRecord?.["completion"]);
+  const cachedInputPrice = perMillion(pricingRecord?.["input_cache_read"]);
+  const reasoningPrice = perMillion(pricingRecord?.["internal_reasoning"]);
+  const pricing: RemoteModelPricing = {
+    ...(inputPrice === undefined ? {} : { inputPrice }),
+    ...(outputPrice === undefined ? {} : { outputPrice }),
+    ...(cachedInputPrice === undefined ? {} : { cachedInputPrice }),
+    ...(reasoningPrice === undefined ? {} : { reasoningPrice }),
+  };
+
+  const contextWindow = positiveInteger(entry, CONTEXT_PATHS);
+  const maxOutputTokens = positiveInteger(entry, MAX_OUTPUT_PATHS);
+
+  return {
+    ...(contextWindow === undefined ? {} : { contextWindow }),
+    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+    ...(inputModalities === undefined ? {} : { inputModalities }),
+    ...(outputModalities === undefined ? {} : { outputModalities }),
+    ...(supportsTools === undefined ? {} : { supportsTools }),
+    ...(supportsJsonSchema === undefined ? {} : { supportsJsonSchema }),
+    ...(supportsReasoning === undefined ? {} : { supportsReasoning }),
+    ...(supportsVision === undefined ? {} : { supportsVision }),
+    ...(Object.keys(pricing).length === 0 ? {} : { pricing }),
+  };
+}
+
 function parseOpenAIModels(payload: unknown): RemoteModel[] {
   const data = getArray(payload, "data");
   if (!data) return [];
@@ -189,10 +387,12 @@ function parseOpenAIModels(payload: unknown): RemoteModel[] {
     const id = asString(entry["id"]);
     if (!id) continue;
     const created = asNumber(entry["created"]);
+    const displayName = asString(entry["display_name"]) ?? asString(entry["name"]);
     models.push({
       id,
       ...(created === undefined ? {} : { createdAt: created * 1000 }),
-      ...(asString(entry["display_name"]) === undefined ? {} : { displayName: asString(entry["display_name"]) }),
+      ...(displayName === undefined ? {} : { displayName }),
+      ...parseModelMetadata(entry),
     });
   }
   return models;
@@ -228,13 +428,10 @@ function parseGeminiModels(payload: unknown): RemoteModel[] {
     if (!rawName) continue;
     const id = rawName.startsWith("models/") ? rawName.slice("models/".length) : rawName;
     const displayName = asString(entry["displayName"]);
-    const context = asNumber(entry["inputTokenLimit"]);
-    const maxOutput = asNumber(entry["outputTokenLimit"]);
     models.push({
       id,
       ...(displayName === undefined ? {} : { displayName }),
-      ...(context === undefined ? {} : { contextWindow: context }),
-      ...(maxOutput === undefined ? {} : { maxOutputTokens: maxOutput }),
+      ...parseModelMetadata(entry),
     });
   }
   return models;

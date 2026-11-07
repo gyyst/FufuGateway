@@ -7,6 +7,7 @@ import type { ProtocolId } from "../ir/common";
 import type { ComboNodeSpec, ComboRecord, StickyConfig, StrategyId } from "../combo/types";
 import type {
   AccountHealth,
+  ModelMetadataSource,
   ModelPricing,
   ModelRecord,
   PricingRecord,
@@ -138,6 +139,8 @@ interface ModelRow {
   price_unit: string;
   enabled: number;
   source: string;
+  metadata_source: string | null;
+  metadata_updated_at: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -222,6 +225,17 @@ export function mapAccount(row: AccountRow): ProviderAccountRecord {
   };
 }
 
+function parseMetadataSource(value: string | null): ModelMetadataSource {
+  switch (value) {
+    case "manual":
+    case "upstream":
+    case "models.dev":
+      return value;
+    default:
+      return "unknown";
+  }
+}
+
 function buildCapabilities(row: ModelRow): ModelCapabilities {
   const inputModalities = parseStringArray(row.input_modalities, "models.input_modalities") as Modality[];
   const outputModalities = parseStringArray(row.output_modalities, "models.output_modalities") as OutputModality[];
@@ -268,6 +282,8 @@ export function mapModel(row: ModelRow): ModelRecord {
     pricing: buildPricing(row),
     enabled: row.enabled === 1,
     source: row.source === "sync" ? "sync" : "manual",
+    metadataSource: parseMetadataSource(row.metadata_source),
+    ...(row.metadata_updated_at === null ? {} : { metadataUpdatedAt: row.metadata_updated_at }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -615,6 +631,8 @@ export interface CreateModelInput {
   reasoningPrice?: number;
   enabled?: boolean;
   source?: "manual" | "sync";
+  metadataSource?: ModelMetadataSource;
+  metadataUpdatedAt?: number;
 }
 
 export async function createModel(db: D1Database, input: CreateModelInput): Promise<ModelRecord> {
@@ -659,6 +677,8 @@ export async function createModel(db: D1Database, input: CreateModelInput): Prom
     },
     enabled: input.enabled ?? true,
     source: input.source ?? "manual",
+    metadataSource: input.metadataSource ?? "manual",
+    ...(input.metadataUpdatedAt === undefined ? {} : { metadataUpdatedAt: input.metadataUpdatedAt }),
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -675,8 +695,8 @@ export async function replaceModel(db: D1Database, record: ModelRecord): Promise
          context_window, max_output_tokens, supports_stream, supports_tools, supports_parallel_tools,
          supports_json_schema, supports_reasoning, supports_vision, supports_audio, supports_video,
          supports_prompt_cache, input_price, output_price, cached_input_price, reasoning_price,
-         price_unit, enabled, source, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         price_unit, enabled, source, metadata_source, metadata_updated_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       record.id,
@@ -704,6 +724,8 @@ export async function replaceModel(db: D1Database, record: ModelRecord): Promise
       record.pricing.unit,
       record.enabled ? 1 : 0,
       record.source,
+      record.metadataSource ?? "unknown",
+      record.metadataUpdatedAt ?? null,
       record.createdAt,
       record.updatedAt,
     )

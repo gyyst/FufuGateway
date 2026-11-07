@@ -17,7 +17,8 @@ import {
 } from "../../config/repository";
 import { selectAnyProviderAccount } from "../../execution/accounts";
 import { fetchProviderModels } from "../../providers/engine";
-import { syncProviderModels } from "../../models/sync";
+import type { RemoteModel } from "../../providers/transport";
+import { refreshProviderModelMetadata, syncProviderModels } from "../../models/sync";
 import { isValidSecretRef } from "../../security/secrets";
 import {
   accountCreateSchema,
@@ -293,6 +294,7 @@ export async function syncModelsHandler(c: Context<AppEnv>): Promise<Response> {
     total: result.total,
     created: result.created,
     skipped: result.skipped,
+    autoEnabled: result.autoEnabled,
   });
 
   return c.json({
@@ -301,7 +303,52 @@ export async function syncModelsHandler(c: Context<AppEnv>): Promise<Response> {
     created: result.created,
     skipped: result.skipped,
     createdModels: result.createdModels,
-    requiresConfirmation: true,
-    note: "Synced models are disabled until an administrator confirms their capabilities and enables them.",
+    autoEnabled: result.autoEnabled,
+    metadata: result.metadata,
+    requiresConfirmation: result.created - result.autoEnabled > 0,
+    note: "Models recognized from upstream metadata or models.dev are enabled automatically. Unrecognized or non-text-output models stay disabled until an administrator confirms their capabilities.",
+  });
+}
+
+export async function refreshModelMetadataHandler(c: Context<AppEnv>): Promise<Response> {
+  const provider = await requireProvider(c, requireProviderId(c));
+  const accounts = await listAccounts(c.env.DB, provider.id);
+  let live: RemoteModel[] = [];
+  let warning: string | undefined;
+
+  if (accounts.length > 0) {
+    try {
+      const { apiKey } = await selectAnyProviderAccount(c.env, provider.id);
+      live = await fetchProviderModels({
+        provider,
+        apiKey,
+        fetchImpl: c.get("fetchImpl"),
+        timeoutMs: 20_000,
+      });
+    } catch (error) {
+      warning = `Upstream model list unavailable (${toGatewayError(error).publicMessage}); only models.dev metadata was applied.`;
+    }
+  } else {
+    warning = "Provider has no accounts; only models.dev metadata was applied.";
+  }
+
+  const result = await refreshProviderModelMetadata({
+    env: c.env,
+    provider,
+    live,
+    fetchImpl: c.get("fetchImpl"),
+  });
+
+  await recordAudit(c, "provider.refresh_model_metadata", "provider", provider.id, {
+    updated: result.updated,
+    unchanged: result.unchanged,
+    skippedManual: result.skippedManual,
+    unmatched: result.unmatched,
+  });
+
+  return c.json({
+    providerId: provider.id,
+    ...result,
+    ...(warning === undefined ? {} : { warning }),
   });
 }

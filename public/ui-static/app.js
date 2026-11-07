@@ -67,6 +67,24 @@ import { initThemeToggle } from "./js/theme.js";
     return Number(value || 0).toLocaleString();
   }
 
+  function fmtContext(value) {
+    const number = Number(value || 0);
+    if (!number) return "-";
+    if (number >= 1000000) {
+      const millions = number / 1000000;
+      return (Number.isInteger(millions) ? String(millions) : millions.toFixed(1)) + "M";
+    }
+    if (number >= 1000) return Math.round(number / 1000) + "K";
+    return String(number);
+  }
+
+  function metadataSourceLabel(source) {
+    if (source === "models.dev") return "models.dev";
+    if (source === "upstream") return "上游";
+    if (source === "manual") return "手动";
+    return "未识别";
+  }
+
   function badge(ok, text) {
     return '<span class="badge ' + (ok ? "ok" : "bad") + '">' + esc(text || (ok ? "启用" : "停用")) + "</span>";
   }
@@ -479,6 +497,8 @@ import { initThemeToggle } from "./js/theme.js";
       "maxTokensField",
       "includeStreamUsage",
       "autoSyncModels",
+      "modelsDevProvider",
+      "syncAutoEnable",
       "breaker",
     ]);
     const customEntries = [];
@@ -557,6 +577,16 @@ import { initThemeToggle } from "./js/theme.js";
         tri(config.autoSyncModels),
       ) +
       "</label>" +
+      '<label class="field"><span>models.dev Provider ID</span><input name="extra_modelsDevProvider" value="' +
+      esc(typeof config.modelsDevProvider === "string" ? config.modelsDevProvider : "") +
+      '" placeholder="留空自动匹配，例如 openai、volcengine"></label>' +
+      '<label class="field"><span>同步自动启用</span>' +
+      selectHtml(
+        "extra_syncAutoEnable",
+        [["", "默认（识别到元数据后启用）"], ["true", "启用"], ["false", "禁用"]],
+        tri(config.syncAutoEnable),
+      ) +
+      "</label>" +
       '<div class="extra-block span-2"><label class="checkbox-row"><input type="checkbox" name="extra_breaker_enabled"' +
       (breaker !== null ? " checked" : "") +
       "><span>自定义熔断参数</span></label>" +
@@ -606,6 +636,7 @@ import { initThemeToggle } from "./js/theme.js";
       ["extra_authQueryParam", "authQueryParam"],
       ["extra_endpointPath", "endpointPath"],
       ["extra_anthropicVersion", "anthropicVersion"],
+      ["extra_modelsDevProvider", "modelsDevProvider"],
     ]) {
       const current = value(name).trim();
       if (current !== "") output[key] = current;
@@ -615,6 +646,7 @@ import { initThemeToggle } from "./js/theme.js";
     for (const [name, key] of [
       ["extra_includeStreamUsage", "includeStreamUsage"],
       ["extra_autoSyncModels", "autoSyncModels"],
+      ["extra_syncAutoEnable", "syncAutoEnable"],
     ]) {
       const current = value(name);
       if (current === "true") output[key] = true;
@@ -2255,10 +2287,18 @@ import { initThemeToggle } from "./js/theme.js";
           key: "sync",
           label: "同步模型",
           run: async (row) => {
-            if (!confirm("从上游同步模型？同步结果默认禁用，需人工确认能力后启用。")) return;
+            if (!confirm("从上游同步模型？会自动识别上下文、图像等能力，识别到的文本模型将自动启用。")) return;
             try {
               const result = await api("/admin/providers/" + row.id + "/sync-models", { method: "POST" });
-              notify("同步完成：新增 " + result.created + "，跳过 " + result.skipped, "ok");
+              notify(
+                "同步完成：新增 " +
+                  result.created +
+                  "（自动启用 " +
+                  (result.autoEnabled || 0) +
+                  "），跳过 " +
+                  result.skipped,
+                "ok",
+              );
               await route();
             } catch (error) {
               notify(error.message, "bad");
@@ -2271,9 +2311,10 @@ import { initThemeToggle } from "./js/theme.js";
       title: "模型",
       endpoint: "/admin/models",
       fields: modelFields,
+      note: "同步或刷新元数据时会按上游字段与 models.dev 自动填充上下文、图像等能力；手工保存能力字段后该模型标记为「手动」，不再被自动覆盖。",
       empty: {
         title: "还没有模型",
-        text: "先在 Provider 页同步上游模型，或手动添加模型。同步结果默认禁用，需要确认能力后启用。",
+        text: "先在 Provider 页同步上游模型，或手动添加模型。识别到元数据的文本模型会自动启用，未识别的模型保持禁用。",
         action: "new",
         actionLabel: "新建模型",
       },
@@ -2287,6 +2328,10 @@ import { initThemeToggle } from "./js/theme.js";
         { label: "上游模型", key: "upstreamModelId", mono: true },
         enabledColumn(),
         {
+          label: "上下文",
+          render: (row) => esc(fmtContext(row.contextWindow || (row.capabilities || {}).contextWindow)),
+        },
+        {
           label: "能力",
           render: (row) => {
             const capabilities = row.capabilities || {};
@@ -2297,6 +2342,10 @@ import { initThemeToggle } from "./js/theme.js";
             if (capabilities.supportsReasoning) flags.push("reasoning");
             return esc(flags.join(", ") || "-");
           },
+        },
+        {
+          label: "元数据",
+          render: (row) => esc(metadataSourceLabel(row.metadataSource)),
         },
         {
           label: "价格 / 1M",
@@ -2702,11 +2751,12 @@ import { initThemeToggle } from "./js/theme.js";
           ? '<div class="callout warn"><strong>先添加账户</strong><p>Provider 没有账户时无法同步模型或发起请求。建议使用 Worker Secret 引用，避免在页面保存明文密钥。</p></div>'
           : "") +
         (models.length === 0
-          ? '<div class="callout warn"><strong>还没有模型</strong><p>同步上游模型或手动添加模型；同步结果默认禁用，能力必须人工确认。</p></div>'
+          ? '<div class="callout warn"><strong>还没有模型</strong><p>同步上游模型或手动添加模型；识别到元数据的文本模型会自动启用，未识别的模型保持禁用。</p></div>'
           : "") +
         '<div class="form-actions">' +
         '<button class="btn" id="setup-accounts">管理账户</button>' +
         '<button class="btn" id="setup-sync">同步模型</button>' +
+        '<button class="btn" id="setup-refresh-metadata">刷新元数据</button>' +
         '<button class="btn" id="setup-models">查看模型</button>' +
         '<button class="btn" id="setup-test">模型列表测试</button>' +
         '<button class="btn" id="setup-chat-test">Chat 自测</button>' +
@@ -2719,12 +2769,45 @@ import { initThemeToggle } from "./js/theme.js";
       openAccounts(provider);
     };
     $("#setup-sync", body).onclick = async () => {
-      if (!confirm("从上游同步模型？同步结果默认禁用，需要人工确认能力。")) return;
+      if (!confirm("从上游同步模型？会自动识别上下文、图像等能力，识别到的文本模型将自动启用。")) return;
       try {
         const result = await api("/admin/providers/" + provider.id + "/sync-models", {
           method: "POST",
         });
-        notify("同步完成：新增 " + result.created + "，跳过 " + result.skipped, "ok");
+        notify(
+          "同步完成：新增 " +
+            result.created +
+            "（自动启用 " +
+            (result.autoEnabled || 0) +
+            "），跳过 " +
+            result.skipped +
+            "，元数据匹配 " +
+            ((result.metadata && (result.metadata.modelsDevMatched + result.metadata.upstreamMatched)) || 0),
+          "ok",
+        );
+        state.routeLookupsLoaded = false;
+        closeModal();
+        await route();
+      } catch (error) {
+        notify(error.message, "bad");
+      }
+    };
+    $("#setup-refresh-metadata", body).onclick = async () => {
+      if (!confirm("刷新已有模型的元数据？只补空缺，不覆盖已填值，也不改变启用状态。")) return;
+      try {
+        const result = await api("/admin/providers/" + provider.id + "/refresh-model-metadata", {
+          method: "POST",
+        });
+        const message =
+          "刷新完成：更新 " +
+          result.updated +
+          "，未变 " +
+          result.unchanged +
+          "，跳过手动 " +
+          result.skippedManual +
+          "，未匹配 " +
+          result.unmatched;
+        notify(result.warning ? message + "；" + result.warning : message, result.warning ? undefined : "ok");
         state.routeLookupsLoaded = false;
         closeModal();
         await route();
@@ -2799,10 +2882,14 @@ import { initThemeToggle } from "./js/theme.js";
               esc(model.modelId) +
               '</td><td class="mono">' +
               esc(model.upstreamModelId) +
+              '</td><td class="mono">' +
+              esc(fmtContext(model.contextWindow || capabilities.contextWindow)) +
               "</td><td>" +
               badge(model.enabled) +
               '</td><td class="mono">' +
               esc(flags.join(", ") || "-") +
+              '</td><td>' +
+              esc(metadataSourceLabel(model.metadataSource)) +
               '</td><td><div class="row-actions">' +
               '<button class="btn small-btn" data-model-edit="' +
               esc(model.id) +
@@ -2815,14 +2902,14 @@ import { initThemeToggle } from "./js/theme.js";
             );
           })
           .join("")
-      : '<tr><td colspan="5" class="empty">暂无模型</td></tr>';
+      : '<tr><td colspan="7" class="empty">暂无模型</td></tr>';
     const body = modal(
       "模型 · " + provider.name,
-      '<p class="hint">同步模型的初始能力全部为 false，必须编辑确认后再启用。这里不会按模型名称猜测能力。</p>' +
-        '<div class="table-wrap"><table><thead><tr><th>模型 ID</th><th>上游模型</th><th>状态</th><th>能力</th><th>操作</th></tr></thead><tbody>' +
+      '<p class="hint">同步时优先使用上游返回的上下文/模态字段，缺失时按模型 ID 匹配 models.dev；识别到的文本模型自动启用，未识别的保持禁用。手工修改能力后标记为手动。</p>' +
+        '<div class="table-wrap"><table><thead><tr><th>模型 ID</th><th>上游模型</th><th>上下文</th><th>状态</th><th>能力</th><th>元数据</th><th>操作</th></tr></thead><tbody>' +
         rows +
         "</tbody></table></div>" +
-        '<div class="form-actions"><button class="btn" id="models-sync">同步模型</button><button class="btn primary" id="models-add">手动添加模型</button></div>',
+        '<div class="form-actions"><button class="btn" id="models-sync">同步模型</button><button class="btn" id="models-refresh-metadata">刷新元数据</button><button class="btn primary" id="models-add">手动添加模型</button></div>',
     );
     $$("[data-model-edit]", body).forEach((button) => {
       button.onclick = () => {
@@ -2850,12 +2937,46 @@ import { initThemeToggle } from "./js/theme.js";
       };
     });
     $("#models-sync", body).onclick = async () => {
-      if (!confirm("从上游同步模型？同步结果默认禁用，需要人工确认能力。")) return;
+      if (!confirm("从上游同步模型？会自动识别上下文、图像等能力，识别到的文本模型将自动启用。")) return;
       try {
         const result = await api("/admin/providers/" + provider.id + "/sync-models", {
           method: "POST",
         });
-        notify("同步完成：新增 " + result.created + "，跳过 " + result.skipped, "ok");
+        notify(
+          "同步完成：新增 " +
+            result.created +
+            "（自动启用 " +
+            (result.autoEnabled || 0) +
+            "），跳过 " +
+            result.skipped +
+            "，元数据匹配 " +
+            ((result.metadata && (result.metadata.modelsDevMatched + result.metadata.upstreamMatched)) || 0),
+          "ok",
+        );
+        state.routeLookupsLoaded = false;
+        closeModal();
+        await route();
+        await openProviderModels(provider);
+      } catch (error) {
+        notify(error.message, "bad");
+      }
+    };
+    $("#models-refresh-metadata", body).onclick = async () => {
+      if (!confirm("刷新已有模型的元数据？只补空缺，不覆盖已填值，也不改变启用状态。")) return;
+      try {
+        const result = await api("/admin/providers/" + provider.id + "/refresh-model-metadata", {
+          method: "POST",
+        });
+        const message =
+          "刷新完成：更新 " +
+          result.updated +
+          "，未变 " +
+          result.unchanged +
+          "，跳过手动 " +
+          result.skippedManual +
+          "，未匹配 " +
+          result.unmatched;
+        notify(result.warning ? message + "；" + result.warning : message, result.warning ? undefined : "ok");
         state.routeLookupsLoaded = false;
         closeModal();
         await route();
