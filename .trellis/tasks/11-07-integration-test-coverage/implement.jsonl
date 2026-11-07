@@ -1,0 +1,3 @@
+{"file": "docs/API.md", "reason": "公开 API 契约，测试用例的预期依据"}
+{"file": "docs/COMBOS.md", "reason": "Combo 策略与路由预期行为"}
+{"file": "docs/PROVIDERS.md", "reason": "Provider 认证与端点解析预期行为"}

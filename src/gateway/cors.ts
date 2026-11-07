@@ -18,14 +18,12 @@ export const inferenceCors: MiddlewareHandler<AppEnv> = async (c, next) => {
   const config = await loadRuntimeConfig(c.env);
   const allowed = config.settings.corsAllowedOrigins;
   const permitted = allowed.includes("*") || allowed.includes(origin);
-  if (permitted) {
-    c.header("access-control-allow-origin", allowed.includes("*") ? "*" : origin);
-    c.header("vary", "Origin");
-  }
   if (c.req.method === "OPTIONS") {
     if (!permitted) {
       return c.body(null, 403);
     }
+    c.header("access-control-allow-origin", allowed.includes("*") ? "*" : origin);
+    c.header("vary", "Origin");
     c.header("access-control-allow-methods", "GET, POST, OPTIONS");
     c.header(
       "access-control-allow-headers",
@@ -35,6 +33,10 @@ export const inferenceCors: MiddlewareHandler<AppEnv> = async (c, next) => {
     c.header("access-control-expose-headers", EXPOSE_HEADERS);
     return c.body(null, 204);
   }
-  c.header("access-control-expose-headers", EXPOSE_HEADERS);
   await next();
+  c.res.headers.set("access-control-expose-headers", EXPOSE_HEADERS);
+  if (permitted) {
+    c.res.headers.set("access-control-allow-origin", allowed.includes("*") ? "*" : origin);
+    c.res.headers.set("vary", "Origin");
+  }
 };
