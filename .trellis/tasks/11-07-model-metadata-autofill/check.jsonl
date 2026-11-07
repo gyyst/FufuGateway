@@ -1,0 +1,14 @@
+{"file": ".trellis/tasks/11-07-model-metadata-autofill/prd.md", "reason": "Acceptance criteria"}
+{"file": ".trellis/tasks/11-07-model-metadata-autofill/design.md", "reason": "Design contracts and edge cases"}
+{"file": "src/models/sync.ts", "reason": "Sync and refresh orchestration"}
+{"file": "src/providers/transport.ts", "reason": "Upstream metadata parsing"}
+{"file": "src/models/catalog.ts", "reason": "Catalog loading, cache and matching implementation"}
+{"file": "src/models/metadata.ts", "reason": "Merge, auto-enable and backfill implementation"}
+{"file": "src/config/repository.ts", "reason": "Metadata source persistence"}
+{"file": "src/admin/handlers/providers.ts", "reason": "Sync and refresh admin handlers"}
+{"file": "migrations/0008_model_metadata_source.sql", "reason": "Additive migration and existing row backfill"}
+{"file": "test/unit/model-catalog.test.ts", "reason": "Catalog unit coverage"}
+{"file": "test/unit/model-metadata.test.ts", "reason": "Merge/backfill unit coverage"}
+{"file": "test/unit/provider-metadata-parse.test.ts", "reason": "Upstream metadata parse coverage"}
+{"file": "test/integration/model-metadata.test.ts", "reason": "End-to-end sync/refresh coverage"}
+{"file": "public/ui-static/app.js", "reason": "Admin UI sync, refresh and metadata display"}

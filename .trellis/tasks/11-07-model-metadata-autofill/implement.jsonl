@@ -1,0 +1,11 @@
+{"file": ".trellis/tasks/11-07-model-metadata-autofill/design.md", "reason": "Technical design for catalog cache, matching, merge and metadata lifecycle"}
+{"file": ".trellis/tasks/11-07-model-metadata-autofill/implement.md", "reason": "Ordered implementation checklist and validation commands"}
+{"file": "src/models/sync.ts", "reason": "Current sync flow to extend"}
+{"file": "src/providers/transport.ts", "reason": "Remote model parsing and provider transport contracts"}
+{"file": "src/config/repository.ts", "reason": "D1 model mapping and persistence"}
+{"file": "src/config/types.ts", "reason": "ModelRecord and capability type definitions"}
+{"file": "src/admin/handlers/providers.ts", "reason": "Provider admin handlers for sync and refresh endpoints"}
+{"file": "src/admin/handlers/models.ts", "reason": "Manual model create/update metadata source handling"}
+{"file": "src/admin/routes.ts", "reason": "Admin route registration"}
+{"file": "public/ui-static/app.js", "reason": "Zero-build admin UI for sync, refresh and metadata columns"}
+{"file": ".trellis/spec/backend/security-guidelines.md", "reason": "Secret handling and admin response sanitization"}
