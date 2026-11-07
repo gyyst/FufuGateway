@@ -183,13 +183,34 @@ CUSTOM 可通过 `extraConfig` 覆盖：
 - Anthropic：`GET {base}/v1/models`
 - Gemini：`GET {base}/v1beta/models?pageSize=1000`
 
+同步时会自动识别模型元数据：
+
+1. **上游实时字段优先**：解析 `context_length`、`context_window`、`max_context_length`、`max_model_len`、`input_token_limit`、`max_output_tokens`、`max_completion_tokens`、`architecture.input_modalities`、`input_modalities`、`modalities.input`、`tool_call`、`structured_output`、`reasoning` 等常见字段。OpenRouter 的每 Token 价格会换算为每百万 Token。
+2. **models.dev 兜底**：按模型 ID 匹配 `https://models.dev/api.json`，补齐上下文、最大输出、输入/输出模态、工具、JSON Schema、推理、Prompt Cache 与价格。目录压缩后缓存到 `CONFIG_KV`（键 `model_catalog:models.dev:v1`，24 小时），远端不可用时使用旧缓存或仅上游字段，不阻塞同步。
+3. **匹配规则**：先按 Provider 匹配（`extraConfig.modelsDevProvider` → Base URL 主机 → Provider 名称），再按模型 ID 匹配（原始 ID → 去掉 `vendor/` 前缀 → 归一化）。归一化忽略大小写、下划线/空格、点号/横线差异、快照日期后缀（`-260813`、`-20260801`）和末尾窗口标记（`[1m]`、`[200k]`）。
+
 同步结果：
 
-- 新模型以 `enabled=false` 创建，能力全部为 false。
-- 已存在模型（按模型 ID 或上游模型 ID）跳过。
-- 管理员必须人工确认能力并启用，网关不会根据名称猜测能力。
+- 识别到元数据的文本模型自动启用（`enabled=true`）。
+- 未识别元数据的模型保持 `enabled=false`，能力为空，等待人工确认。
+- 输出模态为纯图像/音频/embedding 的模型不会自动启用。
+- 已存在的模型（按模型 ID 或上游模型 ID）跳过。
+- 设置 `extraConfig.syncAutoEnable = false` 可以关闭自动启用，恢复“同步后全部禁用”的行为。
+- 响应中的 `metadata.catalog` 为 `ok` / `stale` / `unavailable`，并返回 `modelsDevMatched`、`upstreamMatched`、`unknown`、`autoEnabled` 统计。
 
-设置 `extraConfig.autoSyncModels = true` 后，每日定时任务会使用第一个可用账户自动同步该 Provider 的模型（同样以禁用状态创建，仍需人工确认）。
+### 刷新存量模型元数据
+
+`POST /admin/providers/:id/refresh-model-metadata` 用于回填升级前同步的模型：
+
+- 有账户时重新拉取上游模型列表；无账户或上游失败时只使用 models.dev。
+- 只补空缺：未设置的上下文/最大输出、默认 `["text"]` 的模态、为 `false` 的能力、为 0 的价格、缺少的显示名。
+- 不覆盖已有非空值，不改变 `enabled`。
+- `metadataSource=manual` 的模型跳过；管理员在模型表单中实际修改能力后会自动标记为手动。
+- 返回 `updated`、`unchanged`、`skippedManual`、`unmatched` 统计。
+
+模型记录的 `metadataSource` 取值为 `models.dev` / `upstream` / `manual` / `unknown`，仅用于展示与刷新策略，不参与路由决策。
+
+设置 `extraConfig.autoSyncModels = true` 后，每日定时任务会使用第一个可用账户自动同步该 Provider 的模型（遵循相同的自动识别与自动启用规则）。
 
 ## 8. 连通性测试
 

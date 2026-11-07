@@ -175,7 +175,7 @@ npm run deploy
 - 有 R2：先批量归档为 JSONL，再删除已归档日志（每批 1000 条）。
 - 无 R2：直接删除过期日志。
 - 同时清理超过 365 天的日汇总。
-- 对 `extraConfig.autoSyncModels=true` 的 Provider 执行模型同步（新模型默认禁用）。
+- 对 `extraConfig.autoSyncModels=true` 的 Provider 执行模型同步（自动识别元数据；识别到的文本模型自动启用，可通过 `extraConfig.syncAutoEnable=false` 关闭）。
 
 ### 队列
 

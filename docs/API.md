@@ -103,7 +103,8 @@ Gemini 模型目录与单个模型查询。
 | PUT | `/admin/providers/:id` | 更新 |
 | DELETE | `/admin/providers/:id` | 删除（级联账户/模型/价格） |
 | POST | `/admin/providers/:id/test` | 拉取上游模型列表验证连通性；无账户返回 `PROVIDER_NO_ACCOUNT` |
-| POST | `/admin/providers/:id/sync-models` | 同步上游模型（默认禁用，需人工确认能力） |
+| POST | `/admin/providers/:id/sync-models` | 同步上游模型；自动识别元数据，识别到的文本模型自动启用 |
+| POST | `/admin/providers/:id/refresh-model-metadata` | 回填已有模型空缺的上下文/模态/能力/价格，不改变启用状态 |
 | GET | `/admin/providers/:id/accounts` | 账户列表（响应不含明文 `apiKey`） |
 | POST | `/admin/providers/:id/accounts` | 添加账户（`apiKey` 或 `secretRef` 二选一） |
 | PUT | `/admin/providers/:id/accounts/:accountId` | 更新账户/密钥（`apiKey` 与 `secretRef` 互斥，更新其一会清除另一种） |
@@ -143,7 +144,7 @@ Gemini 模型目录与单个模型查询。
 | POST | `/admin/pricing` | 新增/覆盖价格（Provider + 上游模型） |
 | DELETE | `/admin/pricing/:id` | 删除 |
 
-模型创建字段包含 `providerId`、`modelId`、`upstreamModelId`、能力布尔值、`inputModalities`/`outputModalities`、`contextWindow`、`maxOutputTokens`、四类价格与 `enabled`。
+模型创建字段包含 `providerId`、`modelId`、`upstreamModelId`、能力布尔值、`inputModalities`/`outputModalities`、`contextWindow`、`maxOutputTokens`、四类价格与 `enabled`。模型响应额外包含只读的 `metadataSource`（`manual` / `upstream` / `models.dev` / `unknown`）与 `metadataUpdatedAt`。
 
 ### 3.3 别名（已合并）
 
