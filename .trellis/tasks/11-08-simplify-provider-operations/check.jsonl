@@ -1,0 +1,8 @@
+{"file": ".trellis/tasks/11-08-simplify-provider-operations/prd.md", "reason": "Acceptance criteria to verify"}
+{"file": ".trellis/tasks/11-08-simplify-provider-operations/design.md", "reason": "Expected contracts and unchanged API behavior"}
+{"file": ".trellis/tasks/11-08-simplify-provider-operations/implement.md", "reason": "Validation commands and review gates"}
+{"file": ".trellis/spec/backend/config-publishing.md", "reason": "Verify config mutations still auto-publish and audit"}
+{"file": ".trellis/spec/backend/security-guidelines.md", "reason": "Verify account sanitization and no credential leakage in refactors"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Verify UI escapes values and binds modal controls correctly"}
+{"file": "test/unit/provider-metadata-parse.test.ts", "reason": "Transport parse assertions must remain equivalent"}
+{"file": "test/integration/model-metadata.test.ts", "reason": "Sync and refresh endpoint behavior must not change"}

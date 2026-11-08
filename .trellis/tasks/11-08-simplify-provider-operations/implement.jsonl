@@ -1,0 +1,12 @@
+{"file": ".trellis/tasks/11-08-simplify-provider-operations/prd.md", "reason": "Requirements, non-goals and acceptance criteria"}
+{"file": ".trellis/tasks/11-08-simplify-provider-operations/design.md", "reason": "Technical design for UI, admin handler and transport deduplication"}
+{"file": ".trellis/tasks/11-08-simplify-provider-operations/implement.md", "reason": "Ordered implementation checklist and validation commands"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Zero-build admin UI conventions: modal, event binding and escaping"}
+{"file": ".trellis/spec/backend/config-publishing.md", "reason": "Config mutation responses must keep using configMutationResponse"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse rules for extracting shared helpers instead of copy-paste"}
+{"file": "public/ui-static/app.js", "reason": "Provider actions, setup/models/accounts modals and duplicated sync logic"}
+{"file": "src/admin/handlers/providers.ts", "reason": "Provider admin handlers with duplicated probe and merge logic"}
+{"file": "src/providers/transport.ts", "reason": "Four near-identical transport classes to collapse"}
+{"file": "src/providers/engine.ts", "reason": "Duplicated transport.supports checks and identity ternary"}
+{"file": "src/admin/shared.ts", "reason": "validateProviderUrlAndHeaders signature and sanitize helpers"}
+{"file": "test/unit/provider-metadata-parse.test.ts", "reason": "Unit test constructing transport classes directly"}
