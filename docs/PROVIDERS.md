@@ -177,6 +177,8 @@ CUSTOM 可通过 `extraConfig` 覆盖：
 
 ## 7. 模型同步
 
+管理台 Provider 行的「模型」操作提供「同步模型」「刷新元数据」与「手动添加模型」，是同步入口的唯一位置。
+
 `POST /admin/providers/:id/sync-models` 会调用上游模型列表接口：
 
 - OpenAI 兼容：`GET {base}/models`
@@ -213,6 +215,8 @@ CUSTOM 可通过 `extraConfig` 覆盖：
 设置 `extraConfig.autoSyncModels = true` 后，每日定时任务会使用第一个可用账户自动同步该 Provider 的模型（遵循相同的自动识别与自动启用规则）。
 
 ## 8. 连通性测试
+
+管理台 Provider 行的「测试」操作会打开测试弹窗：默认执行模型列表测试，也可在同一弹窗内发起 Chat 自测（会确认费用）。模型列表测试对应下面的接口。
 
 `POST /admin/providers/:id/test` 使用第一个可用账户拉取模型列表，返回延迟、模型数与样例。失败时返回脱敏错误码与消息：
 

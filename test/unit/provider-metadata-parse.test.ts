@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  GeminiTransport,
-  OpenAITransport,
+  providerTransports,
   type RemoteModel,
 } from "../../src/providers/transport";
 
-const openai = new OpenAITransport();
-const gemini = new GeminiTransport();
+const openai = providerTransports.get("OPENAI_COMPATIBLE");
+const gemini = providerTransports.get("GOOGLE_GEMINI");
 
 function only(models: RemoteModel[]): RemoteModel {
   expect(models).toHaveLength(1);

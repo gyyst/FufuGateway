@@ -437,48 +437,24 @@ function parseGeminiModels(payload: unknown): RemoteModel[] {
   return models;
 }
 
-export class OpenAITransport implements ProviderTransport {
-  readonly type = "OPENAI_COMPATIBLE";
-  supports(protocol: ProtocolId): boolean {
-    return protocol === "openai-chat" || protocol === "openai-responses";
-  }
-  buildEndpoint(provider: ProviderRecord, protocol: ProtocolId, options: EndpointOptions): URL {
-    return buildProtocolEndpoint(provider, protocol, options);
-  }
-  buildModelsEndpoint(provider: ProviderRecord, protocol: ProtocolId): URL {
-    return buildProtocolModelsEndpoint(provider, protocol);
-  }
-  buildAuth(provider: ProviderRecord, apiKey: string): AuthSpec {
-    return buildProviderAuth(provider, apiKey);
-  }
-  parseModels(payload: unknown): RemoteModel[] {
-    return parseOpenAIModels(payload);
-  }
+function parseCustomModels(payload: unknown): RemoteModel[] {
+  return isRecord(payload) && Array.isArray(payload["models"])
+    ? parseGeminiModels(payload)
+    : isRecord(payload) && Array.isArray(payload["data"])
+      ? parseOpenAIModels(payload)
+      : [];
 }
 
-export class AnthropicTransport implements ProviderTransport {
-  readonly type = "ANTHROPIC";
-  supports(protocol: ProtocolId): boolean {
-    return protocol === "anthropic";
-  }
-  buildEndpoint(provider: ProviderRecord, protocol: ProtocolId, options: EndpointOptions): URL {
-    return buildProtocolEndpoint(provider, protocol, options);
-  }
-  buildModelsEndpoint(provider: ProviderRecord, protocol: ProtocolId): URL {
-    return buildProtocolModelsEndpoint(provider, protocol);
-  }
-  buildAuth(provider: ProviderRecord, apiKey: string): AuthSpec {
-    return buildProviderAuth(provider, apiKey);
-  }
-  parseModels(payload: unknown): RemoteModel[] {
-    return parseAnthropicModels(payload);
-  }
-}
+/** 端点构造、认证与地址规则由协议决定，类型只负责支持哪些协议与如何解析模型列表。 */
+class StandardTransport implements ProviderTransport {
+  constructor(
+    readonly type: string,
+    private readonly protocols: readonly ProtocolId[] | null,
+    private readonly parser: (payload: unknown) => RemoteModel[],
+  ) {}
 
-export class GeminiTransport implements ProviderTransport {
-  readonly type = "GOOGLE_GEMINI";
   supports(protocol: ProtocolId): boolean {
-    return protocol === "gemini";
+    return this.protocols === null || this.protocols.includes(protocol);
   }
   buildEndpoint(provider: ProviderRecord, protocol: ProtocolId, options: EndpointOptions): URL {
     return buildProtocolEndpoint(provider, protocol, options);
@@ -490,30 +466,7 @@ export class GeminiTransport implements ProviderTransport {
     return buildProviderAuth(provider, apiKey);
   }
   parseModels(payload: unknown): RemoteModel[] {
-    return parseGeminiModels(payload);
-  }
-}
-
-export class CustomTransport implements ProviderTransport {
-  readonly type = "CUSTOM";
-  supports(_protocol: ProtocolId): boolean {
-    return true;
-  }
-  buildEndpoint(provider: ProviderRecord, protocol: ProtocolId, options: EndpointOptions): URL {
-    return buildProtocolEndpoint(provider, protocol, options);
-  }
-  buildModelsEndpoint(provider: ProviderRecord, protocol: ProtocolId): URL {
-    return buildProtocolModelsEndpoint(provider, protocol);
-  }
-  buildAuth(provider: ProviderRecord, apiKey: string): AuthSpec {
-    return buildProviderAuth(provider, apiKey);
-  }
-  parseModels(payload: unknown): RemoteModel[] {
-    return isRecord(payload) && Array.isArray(payload["models"])
-      ? parseGeminiModels(payload)
-      : isRecord(payload) && Array.isArray(payload["data"])
-        ? parseOpenAIModels(payload)
-        : [];
+    return this.parser(payload);
   }
 }
 
@@ -534,8 +487,12 @@ export class ProviderTransportRegistry {
 }
 
 export const providerTransports = new ProviderTransportRegistry([
-  new OpenAITransport(),
-  new AnthropicTransport(),
-  new GeminiTransport(),
-  new CustomTransport(),
+  new StandardTransport(
+    "OPENAI_COMPATIBLE",
+    ["openai-chat", "openai-responses"],
+    parseOpenAIModels,
+  ),
+  new StandardTransport("ANTHROPIC", ["anthropic"], parseAnthropicModels),
+  new StandardTransport("GOOGLE_GEMINI", ["gemini"], parseGeminiModels),
+  new StandardTransport("CUSTOM", null, parseCustomModels),
 ]);

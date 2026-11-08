@@ -4,8 +4,20 @@ import type { CompatibilityIssue, CompatibilityPolicy, UnifiedRequest } from "..
 import type { ResolvedTarget } from "../combo/types";
 import type { ProviderRecord } from "../config/types";
 import { protocolRegistry } from "../protocol/registry";
-import { providerTransports, type RemoteModel } from "./transport";
+import { providerTransports, type ProviderTransport, type RemoteModel } from "./transport";
 import type { FetchLike } from "./types";
+
+/** 取 Provider 类型对应的传输实现，并确认它支持当前协议。 */
+function requireTransport(provider: ProviderRecord): ProviderTransport {
+  const transport = providerTransports.get(provider.type);
+  if (!transport.supports(provider.protocol)) {
+    throw new GatewayError({
+      code: "CONFIG_INVALID",
+      message: `Provider type ${provider.type} cannot speak protocol ${provider.protocol}`,
+    });
+  }
+  return transport;
+}
 
 export interface BuiltProviderRequest {
   url: string;
@@ -26,13 +38,7 @@ export interface BuildProviderRequestArgs {
 /** 将 IR 请求转换为上游 HTTP 请求（协议体 + 地址 + 认证）。 */
 export function buildProviderRequest(args: BuildProviderRequestArgs): BuiltProviderRequest {
   const { provider, target, apiKey, request, policy } = args;
-  const transport = providerTransports.get(provider.type);
-  if (!transport.supports(provider.protocol)) {
-    throw new GatewayError({
-      code: "CONFIG_INVALID",
-      message: `Provider type ${provider.type} cannot speak protocol ${provider.protocol}`,
-    });
-  }
+  const transport = requireTransport(provider);
   const protocol = protocolRegistry.get(provider.protocol);
   const issues: CompatibilityIssue[] = [];
   const body = protocol.buildUpstreamRequest(request, {
@@ -80,13 +86,7 @@ export interface FetchModelsArgs {
 /** 拉取上游模型列表（用于管理端测试与同步）。 */
 export async function fetchProviderModels(args: FetchModelsArgs): Promise<RemoteModel[]> {
   const { provider, apiKey, fetchImpl } = args;
-  const transport = providerTransports.get(provider.type);
-  if (!transport.supports(provider.protocol)) {
-    throw new GatewayError({
-      code: "CONFIG_INVALID",
-      message: `Provider type ${provider.type} cannot speak protocol ${provider.protocol}`,
-    });
-  }
+  const transport = requireTransport(provider);
   const url = transport.buildModelsEndpoint(provider, provider.protocol);
   const auth = transport.buildAuth(provider, apiKey);
   for (const [name, value] of Object.entries(auth.query)) url.searchParams.set(name, value);
@@ -128,7 +128,7 @@ export async function fetchProviderModels(args: FetchModelsArgs): Promise<Remote
   }
   if (!response.ok) {
     throw new GatewayError({
-      code: response.status === 401 || response.status === 403 ? "UPSTREAM_ERROR" : "UPSTREAM_ERROR",
+      code: "UPSTREAM_ERROR",
       message: `Provider returned HTTP ${response.status} while listing models`,
       retriable: response.status === 429 || response.status >= 500,
       details: { upstream_status: response.status },

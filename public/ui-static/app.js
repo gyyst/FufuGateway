@@ -2269,7 +2269,7 @@ import { initThemeToggle } from "./js/theme.js";
         action: "preset",
         actionLabel: "从预设添加",
       },
-      note: "可以手工新建，也可以从预设添加。添加 Provider 后还需要账户与模型；保存后会自动生效。",
+      note: "可以手工新建，也可以从预设添加。添加 Provider 后还需要账户与模型；保存后会自动生效，最迟约 60 秒同步到所有实例。",
       columns: [
         { label: "名称", key: "name", nowrap: true },
         { label: "类型", key: "type", mono: true, nowrap: true },
@@ -2281,14 +2281,9 @@ import { initThemeToggle } from "./js/theme.js";
       ],
       actions: [
         {
-          key: "health",
-          label: "健康",
-          run: (row) => openProviderHealth(row),
-        },
-        {
-          key: "setup",
-          label: "设置",
-          run: (row) => openProviderSetup(row),
+          key: "accounts",
+          label: "账户",
+          run: (row) => openAccounts(row),
         },
         {
           key: "models",
@@ -2296,43 +2291,14 @@ import { initThemeToggle } from "./js/theme.js";
           run: (row) => openProviderModels(row),
         },
         {
-          key: "accounts",
-          label: "账户",
-          run: (row) => openAccounts(row),
-        },
-        {
           key: "test",
           label: "测试",
-          run: async (row) => {
-            try {
-              const result = await api("/admin/providers/" + row.id + "/test", { method: "POST" });
-              modal("连通性测试", '<pre class="mono">' + esc(JSON.stringify(result, null, 2)) + "</pre>");
-            } catch (error) {
-              notify(error.message, "bad");
-            }
-          },
+          run: (row) => openProviderTest(row),
         },
         {
-          key: "sync",
-          label: "同步模型",
-          run: async (row) => {
-            if (!confirm("从上游同步模型？会自动识别上下文、图像等能力，识别到的文本模型将自动启用。")) return;
-            try {
-              const result = await api("/admin/providers/" + row.id + "/sync-models", { method: "POST" });
-              notifyConfigOutcome(
-                result,
-                "同步完成：新增 " +
-                  result.created +
-                  "（自动启用 " +
-                  (result.autoEnabled || 0) +
-                  "），跳过 " +
-                  result.skipped,
-              );
-              await route();
-            } catch (error) {
-              notify(error.message, "bad");
-            }
-          },
+          key: "health",
+          label: "健康",
+          run: (row) => openProviderHealth(row),
         },
       ],
     },
@@ -2754,138 +2720,121 @@ import { initThemeToggle } from "./js/theme.js";
     render();
   }
 
-  async function openProviderSetup(provider) {
-    let detail;
+  async function syncProviderModels(provider) {
+    if (!confirm("从上游同步模型？会自动识别上下文、图像等能力，识别到的文本模型将自动启用。")) {
+      return false;
+    }
     try {
-      const response = await api("/admin/providers/" + provider.id);
-      detail = response.data;
+      const result = await api("/admin/providers/" + provider.id + "/sync-models", {
+        method: "POST",
+      });
+      notifyConfigOutcome(
+        result,
+        "同步完成：新增 " +
+          result.created +
+          "（自动启用 " +
+          (result.autoEnabled || 0) +
+          "），跳过 " +
+          result.skipped +
+          "，元数据匹配 " +
+          ((result.metadata && (result.metadata.modelsDevMatched + result.metadata.upstreamMatched)) || 0),
+      );
+      state.routeLookupsLoaded = false;
+      return true;
+    } catch (error) {
+      notify(error.message, "bad");
+      return false;
+    }
+  }
+
+  async function refreshProviderMetadata(provider) {
+    if (!confirm("刷新已有模型的元数据？只补空缺，不覆盖已填值，也不改变启用状态。")) return false;
+    try {
+      const result = await api("/admin/providers/" + provider.id + "/refresh-model-metadata", {
+        method: "POST",
+      });
+      const message =
+        "刷新完成：更新 " +
+        result.updated +
+        "，未变 " +
+        result.unchanged +
+        "，跳过手动 " +
+        result.skippedManual +
+        "，未匹配 " +
+        result.unmatched;
+      notifyConfigOutcome(result, result.warning ? message + "；" + result.warning : message);
+      state.routeLookupsLoaded = false;
+      return true;
+    } catch (error) {
+      notify(error.message, "bad");
+      return false;
+    }
+  }
+
+  function testResultHtml(result) {
+    return '<pre class="mono">' + esc(JSON.stringify(result, null, 2)) + "</pre>";
+  }
+
+  async function runProviderModelTest(provider, body) {
+    const resultBox = $("#provider-test-result", body);
+    if (!resultBox) return;
+    resultBox.innerHTML = '<p class="hint">正在测试模型列表...</p>';
+    try {
+      const result = await api("/admin/providers/" + provider.id + "/test", { method: "POST" });
+      resultBox.innerHTML = testResultHtml(result);
+    } catch (error) {
+      resultBox.innerHTML = '<p class="error-text">' + esc(error.message) + "</p>";
+      notify(error.message, "bad");
+    }
+  }
+
+  async function runProviderChatTest(provider, body) {
+    let models = [];
+    try {
+      const detail = await api("/admin/providers/" + provider.id);
+      models = detail.data.models || [];
     } catch (error) {
       notify(error.message, "bad");
       return;
     }
-    const accounts = detail.accounts || [];
-    const models = detail.models || [];
-    const enabledModels = models.filter((model) => model.enabled).length;
-    const body = modal(
-      "设置 · " + provider.name,
-      '<div class="grid cols-3">' +
-        '<div class="card"><h3>账户</h3><div class="metric">' +
-        esc(accounts.length) +
-        " <small>个</small></div></div>" +
-        '<div class="card"><h3>模型</h3><div class="metric">' +
-        esc(models.length) +
-        " <small>个 / 启用 " +
-        esc(enabledModels) +
-        "</small></div></div>" +
-        '<div class="card"><h3>凭据</h3><div class="metric" style="font-size:16px">' +
-        esc(accounts.length > 0 ? "已配置" : "未配置") +
-        "</div></div>" +
-        "</div>" +
-        (accounts.length === 0
-          ? '<div class="callout warn"><strong>先添加账户</strong><p>Provider 没有账户时无法同步模型或发起请求。建议使用 Worker Secret 引用，避免在页面保存明文密钥。</p></div>'
-          : "") +
-        (models.length === 0
-          ? '<div class="callout warn"><strong>还没有模型</strong><p>同步上游模型或手动添加模型；识别到元数据的文本模型会自动启用，未识别的模型保持禁用。</p></div>'
-          : "") +
-        '<div class="form-actions">' +
-        '<button class="btn" id="setup-accounts">管理账户</button>' +
-        '<button class="btn" id="setup-sync">同步模型</button>' +
-        '<button class="btn" id="setup-refresh-metadata">刷新元数据</button>' +
-        '<button class="btn" id="setup-models">查看模型</button>' +
-        '<button class="btn" id="setup-test">模型列表测试</button>' +
-        '<button class="btn primary" id="setup-chat-test">Chat 自测</button>' +
-        "</div>" +
-        '<p class="hint">账户与模型保存后会自动生效，最迟约 60 秒同步到所有实例。</p>',
+    const enabled = models.filter((model) => model.enabled);
+    const fallback = enabled[0] || models[0];
+    const modelId = prompt(
+      "输入模型 ID 做 Chat 自测（会产生真实上游费用）",
+      fallback ? fallback.modelId : "",
     );
-    $("#setup-accounts", body).onclick = () => {
-      closeModal();
-      openAccounts(provider);
-    };
-    $("#setup-sync", body).onclick = async () => {
-      if (!confirm("从上游同步模型？会自动识别上下文、图像等能力，识别到的文本模型将自动启用。")) return;
-      try {
-        const result = await api("/admin/providers/" + provider.id + "/sync-models", {
-          method: "POST",
-        });
-        notifyConfigOutcome(
-          result,
-          "同步完成：新增 " +
-            result.created +
-            "（自动启用 " +
-            (result.autoEnabled || 0) +
-            "），跳过 " +
-            result.skipped +
-            "，元数据匹配 " +
-            ((result.metadata && (result.metadata.modelsDevMatched + result.metadata.upstreamMatched)) || 0),
-        );
-        state.routeLookupsLoaded = false;
-        closeModal();
-        await route();
-      } catch (error) {
-        notify(error.message, "bad");
-      }
-    };
-    $("#setup-refresh-metadata", body).onclick = async () => {
-      if (!confirm("刷新已有模型的元数据？只补空缺，不覆盖已填值，也不改变启用状态。")) return;
-      try {
-        const result = await api("/admin/providers/" + provider.id + "/refresh-model-metadata", {
-          method: "POST",
-        });
-        const message =
-          "刷新完成：更新 " +
-          result.updated +
-          "，未变 " +
-          result.unchanged +
-          "，跳过手动 " +
-          result.skippedManual +
-          "，未匹配 " +
-          result.unmatched;
-        notifyConfigOutcome(result, result.warning ? message + "；" + result.warning : message);
-        state.routeLookupsLoaded = false;
-        closeModal();
-        await route();
-      } catch (error) {
-        notify(error.message, "bad");
-      }
-    };
-    $("#setup-models", body).onclick = () => openProviderModels(provider);
-    $("#setup-test", body).onclick = async () => {
-      try {
-        const result = await api("/admin/providers/" + provider.id + "/test", { method: "POST" });
-        modal(
-          "Provider 模型列表测试 · " + provider.name,
-          '<pre class="mono">' + esc(JSON.stringify(result, null, 2)) + "</pre>",
-        );
-      } catch (error) {
-        notify(error.message, "bad");
-      }
-    };
-    $("#setup-chat-test", body).onclick = async () => {
-      const enabled = models.filter((model) => model.enabled);
-      const fallback = enabled[0] || models[0];
-      const modelId = prompt(
-        "输入模型 ID 做 Chat 自测（会产生真实上游费用）",
-        fallback ? fallback.modelId : "",
-      );
-      if (!modelId) return;
-      if (!confirm("Chat 自测会发起真实上游请求并可能产生费用，继续？")) return;
-      try {
-        const result = await api("/admin/gateway/test", {
-          method: "POST",
-          body: {
-            model: provider.name + "/" + modelId,
-            prompt: "Reply with OK.",
-            maxOutputTokens: 16,
-          },
-        });
-        modal(
-          "Chat 自测 · " + provider.name,
-          '<pre class="mono">' + esc(JSON.stringify(result, null, 2)) + "</pre>",
-        );
-      } catch (error) {
-        notify(error.message, "bad");
-      }
-    };
+    if (!modelId) return;
+    if (!confirm("Chat 自测会发起真实上游请求并可能产生费用，继续？")) return;
+    const resultBox = $("#provider-test-result", body);
+    try {
+      const result = await api("/admin/gateway/test", {
+        method: "POST",
+        body: {
+          model: provider.name + "/" + modelId,
+          prompt: "Reply with OK.",
+          maxOutputTokens: 16,
+        },
+      });
+      if (resultBox) resultBox.innerHTML = testResultHtml(result);
+    } catch (error) {
+      if (resultBox) resultBox.innerHTML = '<p class="error-text">' + esc(error.message) + "</p>";
+      notify(error.message, "bad");
+    }
+  }
+
+  async function openProviderTest(provider) {
+    const body = modal(
+      "测试 · " + provider.name,
+      '<p class="hint">模型列表测试只读取上游模型列表，不产生推理费用；Chat 自测会发起真实请求并可能产生费用。</p>' +
+        '<div id="provider-test-result"></div>' +
+        '<div class="form-actions">' +
+        '<button class="btn" id="provider-test-models">重新测试模型列表</button>' +
+        '<button class="btn primary" id="provider-test-chat">Chat 自测</button>' +
+        "</div>",
+    );
+    $("#provider-test-models", body).onclick = () => runProviderModelTest(provider, body);
+    $("#provider-test-chat", body).onclick = () => runProviderChatTest(provider, body);
+    await runProviderModelTest(provider, body);
   }
 
   async function openProviderModels(provider) {
@@ -2967,53 +2916,16 @@ import { initThemeToggle } from "./js/theme.js";
       };
     });
     $("#models-sync", body).onclick = async () => {
-      if (!confirm("从上游同步模型？会自动识别上下文、图像等能力，识别到的文本模型将自动启用。")) return;
-      try {
-        const result = await api("/admin/providers/" + provider.id + "/sync-models", {
-          method: "POST",
-        });
-        notifyConfigOutcome(
-          result,
-          "同步完成：新增 " +
-            result.created +
-            "（自动启用 " +
-            (result.autoEnabled || 0) +
-            "），跳过 " +
-            result.skipped +
-            "，元数据匹配 " +
-            ((result.metadata && (result.metadata.modelsDevMatched + result.metadata.upstreamMatched)) || 0),
-        );
-        state.routeLookupsLoaded = false;
-        closeModal();
-        await route();
-        await openProviderModels(provider);
-      } catch (error) {
-        notify(error.message, "bad");
-      }
+      if (!(await syncProviderModels(provider))) return;
+      closeModal();
+      await route();
+      await openProviderModels(provider);
     };
     $("#models-refresh-metadata", body).onclick = async () => {
-      if (!confirm("刷新已有模型的元数据？只补空缺，不覆盖已填值，也不改变启用状态。")) return;
-      try {
-        const result = await api("/admin/providers/" + provider.id + "/refresh-model-metadata", {
-          method: "POST",
-        });
-        const message =
-          "刷新完成：更新 " +
-          result.updated +
-          "，未变 " +
-          result.unchanged +
-          "，跳过手动 " +
-          result.skippedManual +
-          "，未匹配 " +
-          result.unmatched;
-        notifyConfigOutcome(result, result.warning ? message + "；" + result.warning : message);
-        state.routeLookupsLoaded = false;
-        closeModal();
-        await route();
-        await openProviderModels(provider);
-      } catch (error) {
-        notify(error.message, "bad");
-      }
+      if (!(await refreshProviderMetadata(provider))) return;
+      closeModal();
+      await route();
+      await openProviderModels(provider);
     };
     $("#models-add", body).onclick = () => {
       closeModal();

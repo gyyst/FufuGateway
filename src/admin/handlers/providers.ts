@@ -46,6 +46,22 @@ async function requireProvider(c: Context<AppEnv>, id: string): Promise<Provider
   return provider;
 }
 
+/** 选择可用账户并拉取上游模型列表，供连通性测试与元数据刷新复用。 */
+async function probeProviderModels(
+  c: Context<AppEnv>,
+  provider: ProviderRecord,
+  timeoutMs = 20_000,
+): Promise<{ account: ProviderAccountRecord; models: RemoteModel[] }> {
+  const { account, apiKey } = await selectAnyProviderAccount(c.env, provider.id);
+  const models = await fetchProviderModels({
+    provider,
+    apiKey,
+    fetchImpl: c.get("fetchImpl"),
+    timeoutMs,
+  });
+  return { account, models };
+}
+
 export async function listProviderHandler(c: Context<AppEnv>): Promise<Response> {
   const [providers, accounts] = await Promise.all([
     listProviders(c.env.DB),
@@ -116,39 +132,18 @@ export async function createProviderHandler(c: Context<AppEnv>): Promise<Respons
   );
 }
 
-function mergeProvider(provider: ProviderRecord, input: Partial<typeof provider> & Record<string, unknown>): ProviderRecord {
-  return {
-    ...provider,
-    ...(typeof input["name"] === "string" ? { name: input["name"] } : {}),
-    ...(typeof input["type"] === "string" ? { type: input["type"] as ProviderRecord["type"] } : {}),
-    ...(typeof input["protocol"] === "string" ? { protocol: input["protocol"] as ProviderRecord["protocol"] } : {}),
-    ...(typeof input["baseUrl"] === "string" ? { baseUrl: input["baseUrl"] } : {}),
-    ...(typeof input["enabled"] === "boolean" ? { enabled: input["enabled"] } : {}),
-    ...(typeof input["priority"] === "number" ? { priority: input["priority"] } : {}),
-    ...(typeof input["weight"] === "number" ? { weight: input["weight"] } : {}),
-    ...(typeof input["timeoutMs"] === "number" ? { timeoutMs: input["timeoutMs"] } : {}),
-    ...(typeof input["firstTokenTimeoutMs"] === "number" ? { firstTokenTimeoutMs: input["firstTokenTimeoutMs"] } : {}),
-    ...(typeof input["idleTimeoutMs"] === "number" ? { idleTimeoutMs: input["idleTimeoutMs"] } : {}),
-    ...(typeof input["maxRetries"] === "number" ? { maxRetries: input["maxRetries"] } : {}),
-    ...(input["retry"] !== undefined ? { retry: input["retry"] as ProviderRecord["retry"] } : {}),
-    ...(input["proxyConfig"] !== undefined ? { proxyConfig: input["proxyConfig"] as ProviderRecord["proxyConfig"] } : {}),
-    ...(input["extraConfig"] !== undefined ? { extraConfig: input["extraConfig"] as Record<string, unknown> } : {}),
-    updatedAt: Date.now(),
-  };
-}
-
 export async function updateProviderHandler(c: Context<AppEnv>): Promise<Response> {
   const provider = await requireProvider(c, requireProviderId(c));
   const input = await parseAdminBody(c, providerUpdateSchema);
-  const merged = mergeProvider(provider, input as unknown as Record<string, unknown>);
+  const merged: ProviderRecord = Object.assign({}, provider, input, { updatedAt: Date.now() });
 
   validateProviderName(merged.name);
   assertProviderTypeProtocol(merged.type, merged.protocol);
-  const customHeaders =
-    input.customHeaders === undefined
-      ? merged.customHeaders
-      : validateProviderUrlAndHeaders(c, merged.baseUrl, input.customHeaders);
-  validateProviderUrlAndHeaders(c, merged.baseUrl, customHeaders);
+  const customHeaders = validateProviderUrlAndHeaders(
+    c,
+    merged.baseUrl,
+    input.customHeaders ?? merged.customHeaders,
+  );
 
   const updated: ProviderRecord = { ...merged, customHeaders };
   await replaceProvider(c.env.DB, updated);
@@ -287,13 +282,7 @@ export async function testProviderHandler(c: Context<AppEnv>): Promise<Response>
     });
   }
   try {
-    const { account, apiKey } = await selectAnyProviderAccount(c.env, provider.id);
-    const models = await fetchProviderModels({
-      provider,
-      apiKey,
-      fetchImpl: c.get("fetchImpl"),
-      timeoutMs: 20_000,
-    });
+    const { account, models } = await probeProviderModels(c, provider);
     return c.json({
       ok: true,
       providerId: provider.id,
@@ -361,13 +350,7 @@ export async function refreshModelMetadataHandler(c: Context<AppEnv>): Promise<R
 
   if (accounts.length > 0) {
     try {
-      const { apiKey } = await selectAnyProviderAccount(c.env, provider.id);
-      live = await fetchProviderModels({
-        provider,
-        apiKey,
-        fetchImpl: c.get("fetchImpl"),
-        timeoutMs: 20_000,
-      });
+      live = (await probeProviderModels(c, provider)).models;
     } catch (error) {
       warning = `Upstream model list unavailable (${toGatewayError(error).publicMessage}); only models.dev metadata was applied.`;
     }
