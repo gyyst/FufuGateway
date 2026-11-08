@@ -13,7 +13,7 @@ import { initThemeToggle } from "./js/theme.js";
   "use strict";
 
   const state = {
-    token: sessionStorage.getItem("fufu_admin_token") || "",
+    token: localStorage.getItem("fufu_admin_token") || "",
     providers: [],
     users: [],
     models: [],
@@ -159,7 +159,7 @@ import { initThemeToggle } from "./js/theme.js";
       payload = text;
     }
     if (response.status === 401) {
-      sessionStorage.removeItem("fufu_admin_token");
+      localStorage.removeItem("fufu_admin_token");
       state.token = "";
       showLogin();
       const error = new Error("管理员令牌无效或已过期");
@@ -913,14 +913,14 @@ import { initThemeToggle } from "./js/theme.js";
     state.token = token;
     try {
       await api("/admin/health");
-      sessionStorage.setItem("fufu_admin_token", token);
+      localStorage.setItem("fufu_admin_token", token);
       showApp();
       await ensureLookups(true);
       setStatus(true, "已连接");
       await route();
     } catch (error) {
       state.token = "";
-      sessionStorage.removeItem("fufu_admin_token");
+      localStorage.removeItem("fufu_admin_token");
       showLogin();
       if (error.status !== 401) {
         $("#login-error").textContent = error.message;
@@ -4428,7 +4428,7 @@ import { initThemeToggle } from "./js/theme.js";
       if (event.target === $("#modal")) closeModal();
     });
     $("#logout").onclick = () => {
-      sessionStorage.removeItem("fufu_admin_token");
+      localStorage.removeItem("fufu_admin_token");
       state.token = "";
       state.providers = [];
       state.users = [];

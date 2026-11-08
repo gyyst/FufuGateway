@@ -22,7 +22,7 @@ const HTML = `<!doctype html>
         <input id="login-token" type="password" autocomplete="current-password" placeholder="ADMIN_TOKEN" required>
       </label>
       <button class="btn primary" type="submit">进入管理台</button>
-      <p class="hint">令牌仅保存在当前标签页的 sessionStorage 中，关闭标签页即失效。</p>
+      <p class="hint">令牌保存在浏览器本地（localStorage）中，关闭标签页后仍保持登录；退出登录会清除。</p>
       <div id="login-error" class="error-text"></div>
     </form>
   </div>
