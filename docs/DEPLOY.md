@@ -210,6 +210,8 @@ npm run deploy
 2. 重新录入上游 Key（选择 `apiKey` 明文或 `secretRef`），保存后自动发布生效。
 3. 确认推理与网关自测正常后，再删除不再需要的 `ENCRYPTION_KEY` Secret。
 
+`0009_api_key_plaintext.sql` 新增 `api_keys.key_plain`，用于管理端随时查看下游 Key。升级后新创建或轮换的 Key 可查看明文；升级前创建的 Key 该列为空，需要轮换生成新 Key 后才能查看。
+
 升级前存在未发布的 D1 变更时，无需手动发布：下一次配置写入会自动发布，每日维护也会尝试一次自动发布；`POST /admin/config/publish` 仍可立即触发，作为兼容与故障恢复入口。
 
 ## 10. 故障排查

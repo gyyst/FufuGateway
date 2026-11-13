@@ -2974,21 +2974,34 @@ import { initThemeToggle } from "./js/theme.js";
     },
   ];
 
-  function showPlaintextKey(key) {
+  function showPlaintextKey(key, options) {
+    const opts = options || {};
     const body = modal(
-      "API Key 已生成",
-      '<p class="hint">明文只显示一次，请立即保存。</p>' +
+      opts.title || "API Key 已生成",
+      '<p class="hint">' +
+        esc(opts.hint || "请妥善保存。之后可在 API Key 列表中随时查看与复制。") +
+        "</p>" +
         '<pre class="mono" id="plaintext-key">' +
         esc(key) +
         "</pre>" +
         '<div class="form-actions"><button class="btn primary" id="copy-key">复制</button></div>',
     );
+    const selectKey = () => {
+      const node = $("#plaintext-key", body);
+      const selection = window.getSelection();
+      if (!node || !selection) return;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    };
     $("#copy-key", body).onclick = async () => {
       try {
         await navigator.clipboard.writeText(key);
         notify("已复制", "ok");
       } catch {
-        notify("复制失败，请手动选择", "bad");
+        selectKey();
+        notify("复制失败，已选中文本，请按 Ctrl+C 手动复制", "bad");
       }
     };
   }
@@ -3038,6 +3051,7 @@ import { initThemeToggle } from "./js/theme.js";
           },
         ],
         actions: [
+          { key: "reveal", label: "查看", run: (row) => revealKey(row) },
           { key: "rotate", label: "轮换", run: (row) => rotateKey(row) },
           {
             key: "budget",
@@ -3053,7 +3067,7 @@ import { initThemeToggle } from "./js/theme.js";
         ],
         empty: {
           title: "还没有 API Key",
-          text: "创建用户和 API Key 后，客户端才能调用网关。明文 Key 只在创建或轮换时显示一次。",
+          text: "创建用户和 API Key 后，客户端才能调用网关。API Key 可在列表中随时查看与复制明文。",
           action: "new",
           actionLabel: "新建 API Key",
         },
@@ -3110,6 +3124,24 @@ import { initThemeToggle } from "./js/theme.js";
         }
       };
 
+      const revealKey = async (key) => {
+        try {
+          const result = await api("/admin/api-keys/" + key.id + "/reveal");
+          showPlaintextKey(result.data.key, {
+            title: "API Key · " + key.name,
+            hint: "可复制该 Key 配置到客户端。请避免在截图、仓库或聊天记录中暴露。",
+          });
+        } catch (error) {
+          const message = String(error.message || "");
+          notify(
+            message.toLowerCase().includes("rotate")
+              ? "该 Key 创建于升级前，没有明文记录；请使用「轮换」生成新 Key 后再查看"
+              : message,
+            "bad",
+          );
+        }
+      };
+
       const renderList = () => {
         let list = rows.filter((row) => {
           const query = listState.query.trim().toLowerCase();
@@ -3161,7 +3193,7 @@ import { initThemeToggle } from "./js/theme.js";
 
       root.innerHTML =
         '<div class="section-head"><h2>API Key</h2><div class="actions"><button class="btn primary" data-new>新建 API Key</button></div></div>' +
-        '<p class="hint">明文只在创建或轮换时返回一次；列表仅显示前缀。</p>' +
+        '<p class="hint">明文保存在网关中，可在列表中随时查看与复制；请限制管理员访问权限。</p>' +
         (rows.length
           ? '<div class="table-toolbar"><input type="search" id="list-search" placeholder="搜索 API Key" aria-label="搜索"><span class="spacer"></span><span class="table-meta" id="list-meta"></span><select id="list-page-size" aria-label="每页条数"><option value="20">20 条/页</option><option value="50">50 条/页</option></select></div>'
           : "") +
@@ -3934,7 +3966,7 @@ import { initThemeToggle } from "./js/theme.js";
       "<br>Gemini: " +
       esc(origin) +
       '（客户端自行追加 /v1beta）</p></div>' +
-      '<p class="hint">API Key 只在创建或轮换时显示一次。请先到 <a href="#/keys">API Key</a> 页面创建，不要把真实 Key 写入仓库或截图。</p>' +
+      '<p class="hint">请先到 <a href="#/keys">API Key</a> 页面创建 Key，并可在列表中随时查看与复制明文；不要把真实 Key 写入仓库或截图。</p>' +
       '<div class="card"><div class="section-head"><h3>选择客户端</h3></div>' +
       '<div class="segmented" id="connect-tabs" role="tablist">' +
       clients

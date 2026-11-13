@@ -179,8 +179,9 @@ Combo 字段：`name`（含 `*`/`?` 时为通配符模式）、`strategy`、`nod
 |------|------|------|
 | GET/POST | `/admin/users` | 用户列表/创建 |
 | GET/PUT | `/admin/users/:id` | 详情/更新（角色、状态、限流与预算） |
-| GET | `/admin/api-keys` | 列表，可带 `?userId=`；不返回哈希 |
-| POST | `/admin/api-keys` | 创建，响应包含一次性明文 `key` |
+| GET | `/admin/api-keys` | 列表，可带 `?userId=`；不返回哈希与明文 |
+| POST | `/admin/api-keys` | 创建，响应包含明文 `key` |
+| GET | `/admin/api-keys/:id/reveal` | 查看单条明文；升级前的旧 Key 无明文时返回 404，需要轮换 |
 | PUT | `/admin/api-keys/:id` | 更新状态、Scopes、白名单、限额、预算、过期时间 |
 | DELETE | `/admin/api-keys/:id` | 删除 |
 | POST | `/admin/api-keys/:id/rotate` | 轮换；默认吊销旧 Key，返回新明文 |

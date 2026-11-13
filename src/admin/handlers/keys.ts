@@ -19,8 +19,9 @@ import { apiKeyCreateSchema, apiKeyRotateSchema, apiKeyUpdateSchema, userCreateS
 import { parseAdminBody, recordAudit, requireParam } from "../shared";
 
 function publicApiKey(key: ApiKeyRecord): Record<string, unknown> {
-  const { keyHash, ...rest } = key;
+  const { keyHash, keyPlain, ...rest } = key;
   void keyHash;
+  void keyPlain;
   return rest;
 }
 
@@ -123,6 +124,7 @@ export async function createApiKeyHandler(c: Context<AppEnv>): Promise<Response>
     name: input.name,
     keyPrefix: generated.prefix,
     keyHash: generated.hash,
+    keyPlain: generated.plaintext,
     scopes: input.scopes,
     modelAllowlist: input.modelAllowlist,
     providerAllowlist: input.providerAllowlist,
@@ -138,8 +140,22 @@ export async function createApiKeyHandler(c: Context<AppEnv>): Promise<Response>
     name: key.name,
     scopes: key.scopes,
   });
-  // 明文只在创建时返回一次。
+  // 创建响应返回明文，同时写入 key_plain 供列表随时查看。
   return c.json({ data: publicApiKey(key), key: generated.plaintext }, 201);
+}
+
+export async function revealApiKeyHandler(c: Context<AppEnv>): Promise<Response> {
+  const key = await requireApiKey(c, requireParam(c, "id"));
+  if (key.keyPlain === undefined) {
+    throw new GatewayError({
+      code: "NOT_FOUND",
+      message: "Plaintext is not available for this key; rotate it to obtain a new key",
+    });
+  }
+  await recordAudit(c, "api_key.reveal", "api_key", key.id, { keyPrefix: key.keyPrefix });
+  return c.json({
+    data: { id: key.id, name: key.name, keyPrefix: key.keyPrefix, key: key.keyPlain },
+  });
 }
 
 export async function updateApiKeyHandler(c: Context<AppEnv>): Promise<Response> {
@@ -207,6 +223,7 @@ export async function rotateApiKeyHandler(c: Context<AppEnv>): Promise<Response>
     name: `${key.name} (rotated)`,
     keyPrefix: generated.prefix,
     keyHash: generated.hash,
+    keyPlain: generated.plaintext,
     scopes: key.scopes,
     modelAllowlist: key.modelAllowlist,
     providerAllowlist: key.providerAllowlist,

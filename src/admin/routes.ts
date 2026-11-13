@@ -41,6 +41,7 @@ import {
   getUserHandler,
   listApiKeysHandler,
   listUsersHandler,
+  revealApiKeyHandler,
   rotateApiKeyHandler,
   updateApiKeyHandler,
   updateUserHandler,
@@ -113,6 +114,7 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
   app.get("/admin/users/:id", getUserHandler);
   app.put("/admin/users/:id", updateUserHandler);
   app.get("/admin/api-keys", listApiKeysHandler);
+  app.get("/admin/api-keys/:id/reveal", revealApiKeyHandler);
   app.post("/admin/api-keys", createApiKeyHandler);
   app.put("/admin/api-keys/:id", updateApiKeyHandler);
   app.delete("/admin/api-keys/:id", deleteApiKeyHandler);

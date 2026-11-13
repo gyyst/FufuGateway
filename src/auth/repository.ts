@@ -24,6 +24,7 @@ interface ApiKeyRow {
   name: string;
   key_prefix: string;
   key_hash: string;
+  key_plain: string | null;
   scopes: string;
   model_allowlist: string | null;
   provider_allowlist: string | null;
@@ -110,6 +111,7 @@ export function mapApiKey(row: ApiKeyRow): ApiKeyRecord {
     name: row.name,
     keyPrefix: row.key_prefix,
     keyHash: row.key_hash,
+    ...(row.key_plain === null ? {} : { keyPlain: row.key_plain }),
     scopes: parseStringArray(row.scopes) ?? ["inference"],
     ...(row.model_allowlist === null ? {} : { modelAllowlist: parseStringArray(row.model_allowlist) }),
     ...(row.provider_allowlist === null ? {} : { providerAllowlist: parseStringArray(row.provider_allowlist) }),
@@ -261,6 +263,7 @@ export interface CreateApiKeyInput {
   name: string;
   keyPrefix: string;
   keyHash: string;
+  keyPlain?: string;
   scopes?: string[];
   modelAllowlist?: string[];
   providerAllowlist?: string[];
@@ -281,6 +284,7 @@ export async function createApiKeyRecord(db: D1Database, input: CreateApiKeyInpu
     name: input.name,
     keyPrefix: input.keyPrefix,
     keyHash: input.keyHash,
+    ...(input.keyPlain === undefined ? {} : { keyPlain: input.keyPlain }),
     scopes: input.scopes ?? ["inference"],
     ...(input.modelAllowlist === undefined ? {} : { modelAllowlist: input.modelAllowlist }),
     ...(input.providerAllowlist === undefined ? {} : { providerAllowlist: input.providerAllowlist }),
@@ -298,10 +302,10 @@ export async function createApiKeyRecord(db: D1Database, input: CreateApiKeyInpu
   await db
     .prepare(
       `INSERT INTO api_keys
-        (id, user_id, name, key_prefix, key_hash, scopes, model_allowlist, provider_allowlist,
+        (id, user_id, name, key_prefix, key_hash, key_plain, scopes, model_allowlist, provider_allowlist,
          rpm_limit, tpm_limit, concurrency_limit, daily_budget_usd, monthly_budget_usd,
          expires_at, status, rotated_from, created_at, updated_at, last_used_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
     )
     .bind(
       record.id,
@@ -309,6 +313,7 @@ export async function createApiKeyRecord(db: D1Database, input: CreateApiKeyInpu
       record.name,
       record.keyPrefix,
       record.keyHash,
+      record.keyPlain ?? null,
       JSON.stringify(record.scopes),
       record.modelAllowlist === undefined ? null : JSON.stringify(record.modelAllowlist),
       record.providerAllowlist === undefined ? null : JSON.stringify(record.providerAllowlist),

@@ -63,6 +63,8 @@ ADMIN_TOKEN=change-me-admin-token
 
 升级到本版本后，下游 API Key 的哈希算法改为带固定域前缀的无盐 SHA-256，旧 Key 的哈希无法重算，所有已有下游 Key 会失效，需要在管理台重新签发。
 
+下游 API Key 现在同时保存明文（`api_keys.key_plain`），管理台可在列表中随时查看与复制；认证仍只使用 `key_hash`。升级前创建的 Key 没有明文记录，需要「轮换」生成新 Key 后才能查看。
+
 上游账户通过管理台提交的 `apiKey` 现在以明文存入 D1（`provider_accounts.api_key_plain`），并会进入配置快照与 KV。生产环境建议使用 `secretRef` 引用 Worker Secret，避免明文落库；升级后历史 `api_key_enc/iv/tag` 密文不再可用，需要重新录入上游 Key 或改用 `secretRef`。
 
 ### 首次配置
@@ -72,7 +74,7 @@ ADMIN_TOKEN=change-me-admin-token
 3. 在「Provider」点击「从预设添加」，选择火山方舟、华为云 MaaS、OpenAI、Anthropic、Gemini、DeepSeek、Kimi、GLM、Qwen、OpenRouter 等预设，或填写自定义兼容端点。
 4. 添加账户。生产环境建议使用 Worker Secret 的 `secretRef`，不要通过页面保存明文密钥。
 5. 同步上游模型或手动添加模型。同步时会自动识别上下文长度、图像/音频/视频输入等能力：识别到的文本模型自动启用，未识别的模型保持禁用，可人工确认后启用。
-6. 在「用户」创建用户，在「API Key」创建下游 Key（明文只显示一次）。
+6. 在「用户」创建用户，在「API Key」创建下游 Key（明文可随时在列表中查看与复制）。
 7. 在「路由诊断」解析模型并运行网关自测；自测会产生真实上游费用，输出限制为 32 Token。
 8. 在「客户端接入」复制 Base URL、环境变量或 SDK 示例。
 
@@ -196,7 +198,8 @@ docs/              架构、API、Provider、Combo、部署文档
 
 ## 安全要点
 
-- 下游 API Key 只存 `SHA-256("fufu_api_key:" + key)` 与前缀，明文仅创建/轮换时返回一次。
+- 下游 API Key 同时保存 `SHA-256("fufu_api_key:" + key)` 哈希与明文：认证只查哈希，明文仅通过单条 reveal 接口按需返回并写入审计；列表接口不返回明文。
+- 任何能读取 D1 的凭据都能直接获得下游 Key 明文；请限制 Cloudflare 账户与数据库访问。
 - 上游 API Key 通过 `apiKey` 提交时以明文存入 D1（并进入配置快照与 KV）；生产环境推荐通过 `secretRef` 引用 Worker Secret。
 - 任何能读取 D1、配置快照或 KV 的凭据都能直接获得明文上游 Key；请限制 Cloudflare 账户与数据库访问。配置保存后会自动发布，`config_versions` 与历史快照会持续累积包含明文上游 Key 的版本，请定期清理旧版本并限制版本读取权限。
 - 客户端 `Authorization` / `x-api-key` 永不透传；上游认证由 Provider Adapter 重建。

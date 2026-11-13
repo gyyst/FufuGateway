@@ -24,6 +24,8 @@ export interface ApiKeyRecord {
   name: string;
   keyPrefix: string;
   keyHash: string;
+  /** 明文，仅用于管理端按需查看；认证始终使用 keyHash。旧数据可能缺失。 */
+  keyPlain?: string;
   scopes: string[];
   modelAllowlist?: string[];
   providerAllowlist?: string[];
